@@ -86,8 +86,8 @@ class ManagedBrowserFailure(BrowserRunnerError):
 
 
 def config_root(home: Path | None = None, environ: dict[str, str] | None = None) -> Path:
-    home = home or Path.home()
-    environ = environ or os.environ
+    home = Path.home() if home is None else home
+    environ = os.environ if environ is None else environ
     if os.name == "nt":
         return Path(environ.get("APPDATA", home / "AppData" / "Roaming"))
     return Path(environ.get("XDG_CONFIG_HOME", home / ".config"))
@@ -96,7 +96,7 @@ def config_root(home: Path | None = None, environ: dict[str, str] | None = None)
 def default_profile_dir(
     home: Path | None = None, environ: dict[str, str] | None = None
 ) -> Path:
-    environ = environ or os.environ
+    environ = os.environ if environ is None else environ
     explicit = environ.get("SOIA_CWORK_PROCESSON_BROWSER_PROFILE_DIR")
     if explicit:
         return Path(explicit).expanduser()
@@ -113,8 +113,8 @@ def default_browser_profile_roots(
 ) -> list[Path]:
     """Return known user-owned browser roots that must never be automated."""
 
-    home = home or Path.home()
-    environ = environ or os.environ
+    home = Path.home() if home is None else home
+    environ = os.environ if environ is None else environ
     roots = [
         home / "Library" / "Application Support" / "Google" / "Chrome",
         home / "Library" / "Application Support" / "Chromium",
