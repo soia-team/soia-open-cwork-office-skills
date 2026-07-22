@@ -1,9 +1,9 @@
 ---
 name: soia-cwork-processon-diagrams
-description: 通过宿主无关的专用浏览器 profile 和可恢复队列，递归盘点 ProcessOn 个人/团队空间到叶子文件；按授权对流程图默认导出 Visio VSDX、对思维导图默认导出 XMind，将未知类型列入待确认清单，并完成下载校验与归档；适用于“读取 ProcessOn 文件”“导出架构图”“盘点全部子目录”“批量下载但不要影响我的 Chrome”“从 POS/VSDX/XMind 提取结构”等请求。
-version: 1.10.4
+description: 安全盘点并按授权导出、校验和归档 ProcessOn 图表。触发：ProcessOn 盘点、导出架构图、批量下载图表
+version: 1.10.5
 created_at: 2026-07-20 18:57:53
-updated_at: 2026-07-22 20:53:55
+updated_at: 2026-07-23 07:16:23
 created_by: gpt-5.6-sol
 updated_by: gpt-5.6-luna
 dependencies:
