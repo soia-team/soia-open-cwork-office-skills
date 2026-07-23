@@ -107,6 +107,18 @@ class ProcessOnBrowserRunnerTests(unittest.TestCase):
                 / "browser-profile",
             )
 
+    def test_default_profile_honors_the_complete_v2_config_root_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            profile = self.module.default_profile_dir(
+                home=root / "home",
+                environ={"SOIA_SKILLS_CONFIG_HOME": str(root / "config-root")},
+            )
+            self.assertEqual(
+                profile,
+                root / "config-root" / self.module.SKILL_NAME / "browser-profile",
+            )
+
     def test_normal_chrome_profile_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)

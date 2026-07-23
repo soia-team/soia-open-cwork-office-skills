@@ -44,8 +44,9 @@ python3 scripts/processon_browser_runner.py snapshot --url '<folder-url>'
 1. CLI：`--temp-dir`、`--output-dir`、`--manifest-dir`、`--retention-days`
 2. 当前进程环境变量
 3. `SOIA_CWORK_PROCESSON_DIAGRAMS_CONFIG_FILE` 指向的私有 YAML
-4. 技能默认私有配置路径
-5. 跨平台安全默认值
+4. 技能默认私有 v2 配置路径
+5. v1 私有配置路径（只读兼容回退；会输出迁移提示）
+6. 跨平台安全默认值
 
 默认私有配置：
 
@@ -54,6 +55,8 @@ python3 scripts/processon_browser_runner.py snapshot --url '<folder-url>'
 ```
 
 从 `assets/config.example.yml` 复制模板，只填写本地路径。不要加入 ProcessOn 用户名、密码、Cookie、Token 或浏览器 profile。
+
+若旧安装仍有 `soia-skills/<repo>/<domain>/soia-cwork-processon-diagrams/config.yml`，解析器只读回退，并向 stderr 输出建议的 `mkdir -p … && mv …`。它不会自动移动配置或浏览器 profile；profile 仍需用户通过 `--profile-dir` 或环境变量显式指定后再确认迁移。
 
 正式批量若要求 no-copy 归档，`TEMP_DIR` 与 `OUTPUT_DIR` 必须位于同一文件系统；推荐把 TEMP 指向交付根下专用 `_staging` 目录。脚本会用受管标记约束清理范围，且拒绝把 output/manifest 放进 temp 内部。
 

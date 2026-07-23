@@ -63,7 +63,9 @@ the actual target is an explicitly confirmed SOIA product workspace.
 - No private family, home, health, finance, or learner profile context.
 - Put user-specific behavior behind CLI args, env vars, or skill-specific
   user-owned config files outside this repo:
-  `~/.config/soia-skills/soia-open-cwork-office-skills/<skill-type>/<skill-name>/config.yml`.
+  `~/.config/soia-skills/<skill-name>/config.yml`. The old
+  `<repo>/<skill-type>/<skill-name>/` namespace is read-only migration input;
+  every new write uses v2.
 - Repository examples must use placeholders such as `<path>`, `<repo>`, and
   `<YOUR_KEY>`.
 
