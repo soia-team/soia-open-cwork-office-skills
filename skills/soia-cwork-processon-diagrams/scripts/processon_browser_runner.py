@@ -93,6 +93,14 @@ def config_root(home: Path | None = None, environ: dict[str, str] | None = None)
     return Path(environ.get("XDG_CONFIG_HOME", home / ".config"))
 
 
+def skills_config_root(home: Path | None = None, environ: dict[str, str] | None = None) -> Path:
+    environ = os.environ if environ is None else environ
+    configured = environ.get("SOIA_SKILLS_CONFIG_HOME")
+    if configured:
+        return Path(configured).expanduser()
+    return config_root(home, environ) / "soia-skills"
+
+
 def default_profile_dir(
     home: Path | None = None, environ: dict[str, str] | None = None
 ) -> Path:
@@ -101,8 +109,7 @@ def default_profile_dir(
     if explicit:
         return Path(explicit).expanduser()
     return (
-        config_root(home, environ)
-        / "soia-skills"
+        skills_config_root(home, environ)
         / SKILL_NAME
         / "browser-profile"
     )

@@ -1,9 +1,9 @@
 ---
 name: soia-cwork-processon-diagrams
 description: 安全盘点并按授权导出、校验和归档 ProcessOn 图表。触发：ProcessOn 盘点、导出架构图、批量下载图表
-version: 1.10.5
+version: 1.10.6
 created_at: 2026-07-20 18:57:53
-updated_at: 2026-07-23 07:16:23
+updated_at: 2026-07-23 16:59:29
 created_by: gpt-5.6-sol
 updated_by: gpt-5.6-luna
 dependencies:
@@ -73,7 +73,7 @@ npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-p
 SOIA_CWORK_PROCESSON_DIAGRAMS_CONFIG_FILE=<custom-config-path>
 ```
 
-配置优先级为 CLI 参数 → 进程环境变量 → 私有 `config.yml` → 跨平台安全默认值。配置键、默认路径和命令见 [下载归档工作流](references/download-workflow.md)。私有配置只保存路径和保留策略，不保存用户名、密码、Cookie、Token 或浏览器 profile。
+配置优先级为 CLI 参数 → 进程环境变量 → 私有 v2 `config.yml` → 只读 v1 配置回退 → 跨平台安全默认值。命中旧 v1 时会输出建议的 `mv` 迁移命令，绝不自动移动数据。配置键、默认路径和命令见 [下载归档工作流](references/download-workflow.md)。私有配置只保存路径和保留策略，不保存用户名、密码、Cookie、Token 或浏览器 profile。
 
 正式远端操作先执行宿主无关 runner；任何 Claude Code、Codex、Gemini CLI、OpenCode 或普通终端都可调用：
 

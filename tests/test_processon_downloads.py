@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -104,6 +105,30 @@ env:
             self.assertEqual(
                 self.module.resolve_config_file(None, {}, home),
                 current,
+            )
+
+    def test_default_config_reads_v1_only_as_a_fallback_with_migration_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = root / "home"
+            current = self.module.default_config_file(home, {})
+            legacy = self.module.legacy_config_files(home, {})[0]
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("schema_version: 1\nenv: {}\n", encoding="utf-8")
+            with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                self.assertEqual(self.module.resolve_config_file(None, {}, home), legacy)
+            self.assertIn("migrate when convenient", stderr.getvalue())
+            current.parent.mkdir(parents=True)
+            current.write_text("schema_version: 1\nenv: {}\n", encoding="utf-8")
+            self.assertEqual(self.module.resolve_config_file(None, {}, home), current)
+
+    def test_config_root_override_is_the_complete_v2_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "home"
+            root = Path(temporary) / "config-root"
+            self.assertEqual(
+                self.module.default_config_file(home, {"SOIA_SKILLS_CONFIG_HOME": str(root)}),
+                root.resolve() / self.module.SKILL_NAME / "config.yml",
             )
 
     def test_safe_defaults_use_system_temp_downloads_and_state(self) -> None:

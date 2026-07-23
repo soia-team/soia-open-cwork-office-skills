@@ -7,6 +7,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import sys
 import tempfile
@@ -26,6 +27,9 @@ MANIFEST_ENV = "SOIA_CWORK_PROCESSON_DIAGRAMS_MANIFEST_DIR"
 RETENTION_ENV = "SOIA_CWORK_PROCESSON_DIAGRAMS_RETENTION_DAYS"
 MANAGED_MARKER = ".soia-cwork-processon-diagrams-managed"
 MARKER_CONTENT = f"{SKILL_NAME}\n"
+LEGACY_REPOSITORIES = ("soia-open-skills", "soia-open-env-skills")
+LEGACY_DOMAINS = ("cwork", "soia-cwork")
+_WARNED_LEGACY_CONFIGS: set[Path] = set()
 
 
 class DownloadError(RuntimeError):
@@ -68,6 +72,13 @@ def config_root(home: Path, environ: Mapping[str, str]) -> Path:
     return expand_path(environ.get("XDG_CONFIG_HOME", home / ".config"))
 
 
+def skills_config_root(home: Path, environ: Mapping[str, str]) -> Path:
+    configured = environ.get("SOIA_SKILLS_CONFIG_HOME")
+    if configured:
+        return expand_path(configured)
+    return config_root(home, environ) / "soia-skills"
+
+
 def state_root(home: Path, environ: Mapping[str, str]) -> Path:
     if os.name == "nt":
         return expand_path(environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
@@ -75,11 +86,27 @@ def state_root(home: Path, environ: Mapping[str, str]) -> Path:
 
 
 def default_config_file(home: Path, environ: Mapping[str, str]) -> Path:
-    return (
-        config_root(home, environ)
-        / "soia-skills"
-        / SKILL_NAME
-        / "config.yml"
+    return skills_config_root(home, environ) / SKILL_NAME / "config.yml"
+
+
+def legacy_config_files(home: Path, environ: Mapping[str, str]) -> list[Path]:
+    root = skills_config_root(home, environ)
+    return [
+        root / repository / domain / SKILL_NAME / "config.yml"
+        for repository in LEGACY_REPOSITORIES
+        for domain in LEGACY_DOMAINS
+    ]
+
+
+def warn_legacy_config(legacy: Path, current: Path) -> None:
+    if legacy in _WARNED_LEGACY_CONFIGS:
+        return
+    _WARNED_LEGACY_CONFIGS.add(legacy)
+    print(
+        "SOIA storage schema v1 config fallback in use; migrate when convenient: "
+        f"mkdir -p {shlex.quote(str(current.parent))} && "
+        f"mv {shlex.quote(str(legacy))} {shlex.quote(str(current))}",
+        file=sys.stderr,
     )
 
 
@@ -132,7 +159,13 @@ def resolve_config_file(
             raise DownloadError(f"{CONFIG_ENV} points to a missing file: {path}")
         return path
     path = default_config_file(home, environ)
-    return path if path.is_file() else None
+    if path.is_file():
+        return path
+    for legacy in legacy_config_files(home, environ):
+        if legacy.is_file():
+            warn_legacy_config(legacy, path)
+            return legacy
+    return None
 
 
 def resolved_value(
