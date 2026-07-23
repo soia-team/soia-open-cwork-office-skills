@@ -201,6 +201,25 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
             [],
         )
 
+    def test_vsdx_blocks_presigned_object_storage_urls_without_echoing_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "文件上传流程.vsdx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("visio/document.xml", "<VisioDocument />")
+                archive.writestr(
+                    "visio/pages/page1.xml",
+                    "<PageContents><Shapes><Shape><Text>"
+                    "https://object.example/file?X-Amz-Credential=opaque-value&amp;X-Amz-Signature=opaque-signature"
+                    "</Text></Shape></Shapes></PageContents>",
+                )
+            with self.assertRaises(MODULE.BatchError) as caught:
+                MODULE.inspect_vsdx(path, "文件上传流程")
+            message = str(caught.exception)
+            self.assertIn("security review required", message)
+            self.assertIn("aws_presigned_url_parameter=2", message)
+            self.assertNotIn("opaque-value", message)
+            self.assertNotIn("opaque-signature", message)
+
     def test_dotted_release_number_separates_chinese_title_signals(self):
         self.assertEqual(
             MODULE.title_signals("《磐石4.0短信系统部署架构图-生产环境》"),

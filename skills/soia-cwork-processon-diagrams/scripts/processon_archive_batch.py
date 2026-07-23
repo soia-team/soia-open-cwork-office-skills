@@ -68,6 +68,10 @@ SENSITIVE_TEXT_PATTERNS = (
         "english_password_assignment",
         re.compile(r"\b(?:password|passwd|pwd)\s*[:=]\s*[^\s,;]+", re.IGNORECASE),
     ),
+    (
+        "aws_presigned_url_parameter",
+        re.compile(r"[?&]X-Amz-(?:Credential|Signature)=", re.IGNORECASE),
+    ),
 )
 VSDX_DOWNLOAD_MENU_CANDIDATES = (
     "导出全部画布 （.vsdx）",
