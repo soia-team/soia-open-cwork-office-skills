@@ -96,6 +96,28 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
         )
         self.assertEqual(label, "VISIO文件")
 
+    def test_vsdx_download_menu_accepts_current_editor_fullwidth_label(self):
+        label, _locator = asyncio.run(
+            MODULE.find_download_menu(
+                MenuPage({"导出全部画布 （.vsdx）"}),
+                self.entry("editor-current"),
+                timeout_ms=100,
+            )
+        )
+        self.assertEqual(label, "导出全部画布 （.vsdx）")
+
+    def test_processon_editor_url_requires_diagram_identifier(self):
+        self.assertTrue(
+            MODULE.is_processon_editor_url(
+                "https://www.processon.com/diagraming/64240bcee72b0b460f0e96f9"
+            )
+        )
+        self.assertFalse(
+            MODULE.is_processon_editor_url(
+                "https://www.processon.com/org/teams/614bf1b1e0b34d2b8d3a67a1"
+            )
+        )
+
     def test_vsdx_semantic_title_check(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "数据服务平台.vsdx"

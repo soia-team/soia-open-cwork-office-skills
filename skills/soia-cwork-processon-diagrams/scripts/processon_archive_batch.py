@@ -70,10 +70,13 @@ SENSITIVE_TEXT_PATTERNS = (
     ),
 )
 VSDX_DOWNLOAD_MENU_CANDIDATES = (
+    "导出全部画布 （.vsdx）",
     "导出全部画布 (.vsdx)",
     "VISIO文件",
     "VISIO文件 beta",
 )
+EDITOR_FILE_MENU = "文件"
+EDITOR_EXPORT_MENU = "导出为"
 
 
 class BatchError(RuntimeError):
@@ -555,10 +558,21 @@ async def find_title(page: Any, title: str, timeout_ms: int) -> Any:
     previous_marker: tuple[int, str] | None = None
     unchanged = 0
     while time.monotonic() < deadline:
-        locator = page.get_by_text(title, exact=True).filter(visible=True).nth(0)
         try:
-            if await locator.count() and await locator.is_visible():
-                return locator
+            # A folder title is also present in the breadcrumb.  Only accept a
+            # title that belongs to a concrete ProcessOn list row; otherwise a
+            # same-named folder can be clicked instead of the requested file.
+            candidates = page.get_by_text(title, exact=True).filter(visible=True)
+            candidate_count = min(await candidates.count(), 32)
+            for index in range(candidate_count):
+                locator = candidates.nth(index)
+                if not await locator.is_visible():
+                    continue
+                row = locator.locator(
+                    "xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' file_list_item ')][1]"
+                )
+                if await row.count() and await row.is_visible():
+                    return locator
         except Exception:
             pass
         marker = (
@@ -630,6 +644,95 @@ async def find_download_menu(
     )
 
 
+def is_processon_editor_url(value: str) -> bool:
+    """Return whether a ProcessOn URL is a concrete diagram editor URL."""
+
+    try:
+        parsed = urlparse(validate_processon_url(value))
+    except BrowserRunnerError:
+        return False
+    return bool(re.fullmatch(r"/diagraming/[^/]+", parsed.path.rstrip("/")))
+
+
+async def open_source_editor(
+    page: Any, title: str, timeout_ms: int, receipt: BrowserReceipt
+) -> tuple[Any, Any | None]:
+    """Open one listed document, accepting an in-page editor or a popup.
+
+    ProcessOn uses both behaviours across team-space views. Bind the listener
+    to this worker page, then poll for an in-page editor navigation so workers
+    never cross-capture each other's transient pages.
+    """
+
+    title_locator = await find_title(page, title, timeout_ms)
+    popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=timeout_ms))
+    try:
+        await title_locator.click(timeout=timeout_ms)
+        deadline = time.monotonic() + timeout_ms / 1000
+        while time.monotonic() < deadline:
+            if popup_task.done():
+                popup = popup_task.result()
+                receipt.scoped_pages_opened += 1
+                await popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+                await popup.wait_for_timeout(900)
+                return popup, popup
+            if is_processon_editor_url(page.url):
+                await page.wait_for_timeout(900)
+                return page, None
+            await page.wait_for_timeout(100)
+        if popup_task.done():
+            popup = popup_task.result()
+            receipt.scoped_pages_opened += 1
+            await popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+            await popup.wait_for_timeout(900)
+            return popup, popup
+        raise BatchError(f"title did not open a ProcessOn editor: {title!r}")
+    finally:
+        if not popup_task.done():
+            popup_task.cancel()
+            try:
+                await popup_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+
+async def open_editor_export_menu(
+    page: Any, entry: dict[str, Any], timeout_ms: int
+) -> tuple[str, Any]:
+    """Open the official editor export menu using visible semantic controls."""
+
+    file_menu = page.get_by_text(EDITOR_FILE_MENU, exact=True).filter(visible=True).nth(0)
+    if not await file_menu.count() or not await file_menu.is_visible():
+        raise BatchError("ProcessOn editor File menu is not visible")
+    await file_menu.click(timeout=timeout_ms)
+    deadline = time.monotonic() + timeout_ms / 1000
+    export_menu = page.get_by_text(EDITOR_EXPORT_MENU, exact=True).filter(visible=True).nth(0)
+    while time.monotonic() < deadline:
+        try:
+            if await export_menu.count() and await export_menu.is_visible():
+                await export_menu.click(timeout=timeout_ms)
+                return await find_download_menu(page, entry, timeout_ms)
+        except Exception:
+            pass
+        await page.wait_for_timeout(100)
+    raise BatchError("ProcessOn editor export menu is not visible")
+
+
+async def wait_for_source_title(page: Any, expected: str, timeout_ms: int) -> str:
+    """Wait for ProcessOn's asynchronous editor document title to settle."""
+
+    deadline = time.monotonic() + timeout_ms / 1000
+    observed = ""
+    while time.monotonic() < deadline:
+        observed = await page.title()
+        if source_title_matches(expected, observed):
+            return observed
+        await page.wait_for_timeout(150)
+    raise BatchError(f"source editor title mismatch: expected {expected!r}, got {observed!r}")
+
+
 async def download_one(
     page: Any,
     entry: dict[str, Any],
@@ -648,43 +751,17 @@ async def download_one(
         "requested_format": entry["primary_format"],
     }
     try:
-        title_locator = await find_title(page, title, timeout_ms)
-        # Bind the popup to the page that initiated the click. A context-wide
-        # page listener can fulfill multiple concurrent waiters with the same
-        # popup and silently cross-wire two artifacts.
-        async with page.expect_popup(timeout=timeout_ms) as popup_info:
-            await title_locator.click(timeout=timeout_ms)
-        popup = await popup_info.value
-        receipt.scoped_pages_opened += 1
-        await popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
-        await popup.wait_for_timeout(900)
-        source_url = validate_processon_url(popup.url)
-        source_title = await popup.title()
-        if not source_title_matches(title, source_title):
-            raise BatchError(f"source popup title mismatch: expected {title!r}, got {source_title!r}")
+        source_page, popup = await open_source_editor(page, title, timeout_ms, receipt)
+        source_url = validate_processon_url(source_page.url)
+        source_title = await wait_for_source_title(source_page, title, timeout_ms)
         remote_id = verify_source_identity(entry, source_url)
         result["source_url"] = source_url
         result["source_title"] = source_title
         result["remote_id"] = remote_id
-        await popup.close(run_before_unload=False)
-        receipt.scoped_pages_closed += 1
-        popup = None
 
-        # Reacquire after opening/closing the editor; SPA may have replaced nodes.
-        title_locator = await find_title(page, title, timeout_ms)
-        await title_locator.hover(timeout=timeout_ms)
-        row = title_locator.locator(
-            "xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' file_list_item ')][1]"
-        )
-        trigger = row.locator("span.more.icons.icon-gengduo").filter(visible=True)
-        if await trigger.count() != 1:
-            raise BatchError(f"ambiguous ProcessOn row menu for {title!r}")
-        await trigger.click(timeout=timeout_ms)
-        download_label = page.get_by_text("下载", exact=False).filter(visible=True).nth(0)
-        await download_label.hover(timeout=timeout_ms)
-        menu_label, menu = await find_download_menu(page, entry, timeout_ms)
+        menu_label, menu = await open_editor_export_menu(source_page, entry, timeout_ms)
         result["download_menu"] = menu_label
-        async with page.expect_download(timeout=max(timeout_ms, 60_000)) as download_info:
+        async with source_page.expect_download(timeout=max(timeout_ms, 60_000)) as download_info:
             await menu.click(timeout=timeout_ms)
         download = await download_info.value
         suggested = download.suggested_filename
@@ -745,16 +822,19 @@ async def worker_loop(
                 queue.task_done()
                 break
             directory, entries = job
-            try:
-                await navigate_directory(
-                    page,
-                    team_url=team_url,
-                    root_path=str(plan["root_path"]),
-                    source_directory=directory,
-                    settle_ms=settle_ms,
-                    timeout_ms=timeout_ms,
-                )
-                for entry in entries:
+            for entry in entries:
+                try:
+                    # A title can navigate this same worker into the official
+                    # editor. Rebuild the approved directory view before each
+                    # artifact instead of relying on history/back semantics.
+                    await navigate_directory(
+                        page,
+                        team_url=team_url,
+                        root_path=str(plan["root_path"]),
+                        source_directory=directory,
+                        settle_ms=settle_ms,
+                        timeout_ms=timeout_ms,
+                    )
                     results.append(
                         await download_one(
                             page,
@@ -764,8 +844,7 @@ async def worker_loop(
                             receipt=receipt,
                         )
                     )
-            except Exception as exc:
-                for entry in entries:
+                except Exception as exc:
                     results.append(
                         {
                             "ok": False,
@@ -775,8 +854,7 @@ async def worker_loop(
                             "error": f"{type(exc).__name__}: {exc}",
                         }
                     )
-            finally:
-                queue.task_done()
+            queue.task_done()
         return results
     finally:
         if not page.is_closed():
