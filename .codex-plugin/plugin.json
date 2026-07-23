@@ -1,0 +1,23 @@
+{
+  "name": "soia-cwork-office",
+  "version": "1.0.0",
+  "description": "办公协作技能：飞书知识库与云盘、ProcessOn 图表",
+  "author": {
+    "name": "soia-team"
+  },
+  "interface": {
+    "displayName": "办公协作技能库",
+    "shortDescription": "飞书知识库与云盘、ProcessOn 图表",
+    "longDescription": "覆盖飞书知识库、云文档、云盘同步与 ProcessOn 图表归档的办公协作技能。",
+    "developerName": "soia-team",
+    "category": "Productivity",
+    "capabilities": [
+      "飞书协作",
+      "文档同步",
+      "图表归档"
+    ],
+    "defaultPrompt": [
+      "请整理并同步这批办公文档与协作图表。"
+    ]
+  }
+}
