@@ -5,7 +5,7 @@ version: 1.10.6
 created_at: 2026-07-20 18:57:53
 updated_at: 2026-07-23 16:59:29
 created_by: gpt-5.6-sol
-updated_by: gpt-5.6-luna
+updated_by: gpt-5.6-sol
 dependencies:
   optional: [soia-dev-drawio-visio-diagrams]
 ---
