@@ -1,7 +1,7 @@
 ---
 name: soia-cwork-processon-diagrams
 description: 安全盘点并按授权导出、校验和归档 ProcessOn 图表。触发：ProcessOn 盘点、导出架构图、批量下载图表
-version: 1.10.7
+version: 1.10.8
 created_at: 2026-07-20 18:57:53
 updated_at: 2026-07-23 16:59:29
 created_by: gpt-5.6-sol
@@ -231,7 +231,7 @@ python3 scripts/finalize_processon_download.py finalize <browser-downloaded-file
 python3 scripts/finalize_processon_download.py finalize <browser-downloaded-file>
 ```
 
-3. 核对文件非空、扩展名与内容类型一致；VSDX 必须是有效 ZIP/OOXML 且包含 `visio/document.xml`，图像核对尺寸，POS/XMind 核对标题和可提取文字，所有文件记录 SHA-256。VSDX 提取文字后、写入交付目录前必须扫描疑似明文凭据赋值；命中 `密码/password/passwd/pwd` 加值时只报告命中类型和数量，不回显秘密值，文件保持 pending 并进入安全复核，不得写入 Git 归档。文件名只能作为候选证据：若异步队列产生 `(1)` 后缀、标题漂移或同名不同 SHA，调用 `soia-dev-drawio-visio-diagrams` 提取 VSDX 页面文字反证来源；无法唯一对应 artifact 时保持 pending，不移动、不改名、不调用 `record`。VSDX 完整标题片段未出现时，只有在稳定 `remote_id/source_url` 已先核对、且文件内至少命中两个互不重叠的中文二字片段时，才允许以 `chinese_bigram_pair` 作为补充语义证据；单个泛词不得放行。状态脚本直接拒绝把个人 `~/Downloads` 根目录中的任何平铺文件登记为完成；未编号的第一份也无法证明来源绑定。历史平铺记录从可信 `completed` 排除并列入 `revalidation_pending`，先用 `reopen` 原子移入隔离区、回到可领取队列，再按 artifact_id 独立重下。批量下载只能逐个执行；官网未明确支持时不声称存在批量 API。清理临时目录必须先 `cleanup --dry-run`，再由客户确认。
+3. 核对文件非空、扩展名与内容类型一致；VSDX 必须是有效 ZIP/OOXML 且包含 `visio/document.xml`，图像核对尺寸，POS/XMind 核对标题和可提取文字，所有文件记录 SHA-256。VSDX 提取文字后、写入交付目录前必须扫描疑似明文凭据赋值和对象存储预签名 URL 参数；命中 `密码/password/passwd/pwd` 或 `X-Amz-Credential/X-Amz-Signature` 时只报告命中类型和数量，不回显秘密值，文件保持 pending 并进入安全复核，不得写入 Git 归档。文件名只能作为候选证据：若异步队列产生 `(1)` 后缀、标题漂移或同名不同 SHA，调用 `soia-dev-drawio-visio-diagrams` 提取 VSDX 页面文字反证来源；无法唯一对应 artifact 时保持 pending，不移动、不改名、不调用 `record`。VSDX 完整标题片段未出现时，只有在稳定 `remote_id/source_url` 已先核对、且文件内至少命中两个互不重叠的中文二字片段时，才允许以 `chinese_bigram_pair` 作为补充语义证据；单个泛词不得放行。状态脚本直接拒绝把个人 `~/Downloads` 根目录中的任何平铺文件登记为完成；未编号的第一份也无法证明来源绑定。历史平铺记录从可信 `completed` 排除并列入 `revalidation_pending`，先用 `reopen` 原子移入隔离区、回到可领取队列，再按 artifact_id 独立重下。批量下载只能逐个执行；官网未明确支持时不声称存在批量 API。清理临时目录必须先 `cleanup --dry-run`，再由客户确认。
 
 历史批量迁移使用换行分隔的 artifact 清单，整个状态提交失败时归档文件会回滚原位：
 
