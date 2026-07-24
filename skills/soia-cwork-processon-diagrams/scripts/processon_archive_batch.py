@@ -81,6 +81,50 @@ VSDX_DOWNLOAD_MENU_CANDIDATES = (
 )
 EDITOR_FILE_MENU = "文件"
 EDITOR_EXPORT_MENU = "导出为"
+SEMANTIC_CONTROL_SELECTORS = {
+    "文件": (
+        "[aria-label='文件']",
+        "[title='文件']",
+        "[data-title='文件']",
+        "[data-tooltip='文件']",
+    ),
+    "导出为": (
+        "[aria-label='导出为']",
+        "[title='导出为']",
+        "[data-title='导出为']",
+        "[data-tooltip='导出为']",
+    ),
+    "导出全部画布 （.vsdx）": (
+        "[aria-label='导出全部画布 （.vsdx）']",
+        "[title='导出全部画布 （.vsdx）']",
+        "[data-title='导出全部画布 （.vsdx）']",
+        "[data-tooltip='导出全部画布 （.vsdx）']",
+    ),
+    "导出全部画布 (.vsdx)": (
+        "[aria-label='导出全部画布 (.vsdx)']",
+        "[title='导出全部画布 (.vsdx)']",
+        "[data-title='导出全部画布 (.vsdx)']",
+        "[data-tooltip='导出全部画布 (.vsdx)']",
+    ),
+    "VISIO文件": (
+        "[aria-label='VISIO文件']",
+        "[title='VISIO文件']",
+        "[data-title='VISIO文件']",
+        "[data-tooltip='VISIO文件']",
+    ),
+    "VISIO文件 beta": (
+        "[aria-label='VISIO文件 beta']",
+        "[title='VISIO文件 beta']",
+        "[data-title='VISIO文件 beta']",
+        "[data-tooltip='VISIO文件 beta']",
+    ),
+    "Xmind文件": (
+        "[aria-label='Xmind文件']",
+        "[title='Xmind文件']",
+        "[data-title='Xmind文件']",
+        "[data-tooltip='Xmind文件']",
+    ),
+}
 
 
 class BatchError(RuntimeError):
@@ -693,6 +737,34 @@ def download_menu_candidates(entry: dict[str, Any]) -> list[str]:
     return candidates
 
 
+def semantic_control_locators(page: Any, label: str) -> list[Any]:
+    """Return fixed, provider-controlled semantic locators for a menu label.
+
+    The browser runner exposes visible text plus standard accessible/title
+    attributes.  Keep the batch executor aligned without accepting arbitrary
+    selectors: attribute selectors are an allowlist for known ProcessOn menu
+    labels only, while every caller-provided plan label remains text-only.
+    """
+
+    locators = [page.get_by_text(label, exact=True).filter(visible=True).nth(0)]
+    for selector in SEMANTIC_CONTROL_SELECTORS.get(label, ()):
+        try:
+            locators.append(page.locator(selector).filter(visible=True).nth(0))
+        except (AttributeError, TypeError):
+            continue
+    return locators
+
+
+async def visible_semantic_control(page: Any, label: str) -> Any | None:
+    for locator in semantic_control_locators(page, label):
+        try:
+            if await locator.count() and await locator.is_visible():
+                return locator
+        except Exception:
+            continue
+    return None
+
+
 async def find_download_menu(
     page: Any, entry: dict[str, Any], timeout_ms: int
 ) -> tuple[str, Any]:
@@ -702,12 +774,9 @@ async def find_download_menu(
     deadline = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < deadline:
         for label in candidates:
-            locator = page.get_by_text(label, exact=True).filter(visible=True).nth(0)
-            try:
-                if await locator.count() and await locator.is_visible():
-                    return label, locator
-            except Exception:
-                continue
+            locator = await visible_semantic_control(page, label)
+            if locator is not None:
+                return label, locator
         remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
         await page.wait_for_timeout(min(100, remaining_ms))
     raise BatchError(
@@ -777,13 +846,10 @@ async def open_editor_export_menu(
     deadline = time.monotonic() + timeout_ms / 1000
 
     async def wait_for_visible(label: str) -> Any | None:
-        locator = page.get_by_text(label, exact=True).filter(visible=True).nth(0)
         while time.monotonic() < deadline:
-            try:
-                if await locator.count() and await locator.is_visible():
-                    return locator
-            except Exception:
-                pass
+            locator = await visible_semantic_control(page, label)
+            if locator is not None:
+                return locator
             remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
             await page.wait_for_timeout(min(100, remaining_ms))
         return None
@@ -791,11 +857,7 @@ async def open_editor_export_menu(
     async def controls_diagnostic(phase: str) -> str:
         controls: dict[str, bool] = {}
         for label in (EDITOR_FILE_MENU, EDITOR_EXPORT_MENU):
-            locator = page.get_by_text(label, exact=True).filter(visible=True).nth(0)
-            try:
-                controls[label] = bool(await locator.count() and await locator.is_visible())
-            except Exception:
-                controls[label] = False
+            controls[label] = (await visible_semantic_control(page, label)) is not None
         editor_route = urlparse(str(getattr(page, "url", ""))).path.split("/", 2)[1:2]
         return json.dumps(
             {
