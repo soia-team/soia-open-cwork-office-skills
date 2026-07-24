@@ -125,6 +125,60 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
         deferred = MODULE.deferred_collision_entries(plan, progress)
         self.assertEqual([item["artifact_id"] for item in deferred], ["collision"])
 
+    def test_failed_retry_requires_explicit_unique_failed_artifact_ids(self):
+        plan = {"entries": [self.entry("pending"), self.entry("failed"), self.entry("blocked")]}
+        progress = {
+            "completed": [],
+            "failed": [{"artifact_id": "failed"}],
+            "blocked": [{"artifact_id": "blocked"}],
+        }
+        selected = MODULE.choose_entries(
+            plan,
+            progress,
+            10,
+            workers=2,
+            retry_failed=True,
+            artifact_ids=["failed"],
+        )
+        self.assertEqual([item["artifact_id"] for item in selected], ["failed"])
+        with self.assertRaisesRegex(MODULE.BatchError, "requires one or more"):
+            MODULE.choose_entries(plan, progress, 10, workers=1, retry_failed=True)
+        with self.assertRaisesRegex(MODULE.BatchError, "requires --retry-failed"):
+            MODULE.choose_entries(plan, progress, 10, workers=1, artifact_ids=["failed"])
+        with self.assertRaisesRegex(MODULE.BatchError, "must be unique"):
+            MODULE.choose_entries(
+                plan,
+                progress,
+                10,
+                workers=1,
+                retry_failed=True,
+                artifact_ids=["failed", "failed"],
+            )
+        with self.assertRaisesRegex(MODULE.BatchError, "currently in progress.failed"):
+            MODULE.choose_entries(
+                plan,
+                progress,
+                10,
+                workers=1,
+                retry_failed=True,
+                artifact_ids=["pending"],
+            )
+        collision_plan = {"entries": [self.entry("collision", "duplicate_title")]}
+        collision_progress = {
+            "completed": [],
+            "failed": [{"artifact_id": "collision"}],
+            "blocked": [],
+        }
+        with self.assertRaisesRegex(MODULE.BatchError, "collision-risk"):
+            MODULE.choose_entries(
+                collision_plan,
+                collision_progress,
+                10,
+                workers=1,
+                retry_failed=True,
+                artifact_ids=["collision"],
+            )
+
     def test_vsdx_download_menu_prefers_all_canvases(self):
         label, _locator = asyncio.run(
             MODULE.find_download_menu(

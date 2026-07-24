@@ -151,6 +151,19 @@ def progress_done_ids(progress: dict[str, Any]) -> set[str]:
     return result
 
 
+def failed_ids(progress: dict[str, Any]) -> set[str]:
+    """Return the only terminal state that may enter an explicit retry."""
+
+    values = progress.get("failed", [])
+    if not isinstance(values, list):
+        raise BatchError("progress.failed must be a list")
+    return {
+        str(item["artifact_id"])
+        for item in values
+        if isinstance(item, dict) and item.get("artifact_id")
+    }
+
+
 def validate_plan(plan: dict[str, Any], progress: dict[str, Any]) -> None:
     entries = plan.get("entries")
     if plan.get("schema_version") != 1 or not isinstance(entries, list):
@@ -364,14 +377,68 @@ def output_folder(output_root: Path, entry: dict[str, Any]) -> Path:
 
 
 def choose_entries(
-    plan: dict[str, Any], progress: dict[str, Any], limit: int, *, workers: int
+    plan: dict[str, Any],
+    progress: dict[str, Any],
+    limit: int,
+    *,
+    workers: int,
+    retry_failed: bool = False,
+    artifact_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
+    """Choose normal pending work or a caller-whitelisted failed retry.
+
+    A failed retry is deliberately not a queue-wide switch: the caller must
+    name every planned artifact.  This preserves the immutable failure
+    evidence and prevents a transient UI change from turning into a blind
+    retry storm.
+    """
+
+    requested_ids = [str(item).strip() for item in artifact_ids or []]
+    if requested_ids and not retry_failed:
+        raise BatchError("--artifact-id requires --retry-failed")
+    if retry_failed and not requested_ids:
+        raise BatchError("--retry-failed requires one or more --artifact-id values")
+    if len(set(requested_ids)) != len(requested_ids):
+        raise BatchError("--artifact-id values must be unique")
+
+    plan_by_id = {
+        str(entry.get("artifact_id", "")): entry
+        for entry in plan["entries"]
+        if entry.get("artifact_id")
+    }
+    requested_set = set(requested_ids)
+    unknown_ids = requested_set - set(plan_by_id)
+    if unknown_ids:
+        raise BatchError(f"--artifact-id is not in the current plan: {sorted(unknown_ids)[0]}")
+    if retry_failed:
+        retryable_ids = failed_ids(progress)
+        not_failed_ids = requested_set - retryable_ids
+        if not_failed_ids:
+            raise BatchError(
+                "--retry-failed may only name artifacts currently in progress.failed: "
+                f"{sorted(not_failed_ids)[0]}"
+            )
+        for artifact_id in requested_ids:
+            entry = plan_by_id[artifact_id]
+            if entry.get("confirmation_required") or entry.get("type") == "unknown":
+                raise BatchError(
+                    f"--retry-failed cannot name an unconfirmed artifact: {artifact_id}"
+                )
+            if entry.get("collision_risk") not in {None, "", "none_detected"}:
+                raise BatchError(
+                    f"--retry-failed cannot name a collision-risk artifact: {artifact_id}"
+                )
+
     done = progress_done_ids(progress)
+    if retry_failed:
+        done -= requested_set
     selected: list[dict[str, Any]] = []
     for entry in plan["entries"]:
         if entry.get("confirmation_required") or entry.get("type") == "unknown":
             continue
         artifact_id = str(entry.get("artifact_id", ""))
+        if requested_set and artifact_id not in requested_set:
+            continue
         if not artifact_id or artifact_id in done:
             continue
         if entry.get("collision_risk") not in {None, "", "none_detected"}:
@@ -1781,7 +1848,14 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             progress = load_json(args.progress)
     legacy_review = legacy_flat_download_review(progress)
     deferred_collisions = deferred_collision_entries(plan, progress)
-    selected = choose_entries(plan, progress, args.limit, workers=args.workers)
+    selected = choose_entries(
+        plan,
+        progress,
+        args.limit,
+        workers=args.workers,
+        retry_failed=args.retry_failed,
+        artifact_ids=args.artifact_id,
+    )
     if not selected:
         refreshed_progress = load_json(args.progress)
         if args.progress_mirror and not args.dry_run:
@@ -1945,6 +2019,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=12)
     parser.add_argument("--timeout-ms", type=int, default=30_000)
     parser.add_argument("--settle-ms", type=int, default=3_000)
+    parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="Retry only the explicitly named current failed artifacts; never retries the whole queue.",
+    )
+    parser.add_argument(
+        "--artifact-id",
+        action="append",
+        default=[],
+        help="One exact current-plan artifact id; required with --retry-failed and repeatable.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
