@@ -707,21 +707,165 @@ async def open_editor_export_menu(
 ) -> tuple[str, Any]:
     """Open the official editor export menu using visible semantic controls."""
 
-    file_menu = page.get_by_text(EDITOR_FILE_MENU, exact=True).filter(visible=True).nth(0)
-    if not await file_menu.count() or not await file_menu.is_visible():
-        raise BatchError("ProcessOn editor File menu is not visible")
-    await file_menu.click(timeout=timeout_ms)
     deadline = time.monotonic() + timeout_ms / 1000
-    export_menu = page.get_by_text(EDITOR_EXPORT_MENU, exact=True).filter(visible=True).nth(0)
-    while time.monotonic() < deadline:
-        try:
-            if await export_menu.count() and await export_menu.is_visible():
-                await export_menu.click(timeout=timeout_ms)
-                return await find_download_menu(page, entry, timeout_ms)
-        except Exception:
-            pass
-        await page.wait_for_timeout(100)
-    raise BatchError("ProcessOn editor export menu is not visible")
+
+    async def wait_for_visible(label: str) -> Any | None:
+        locator = page.get_by_text(label, exact=True).filter(visible=True).nth(0)
+        while time.monotonic() < deadline:
+            try:
+                if await locator.count() and await locator.is_visible():
+                    return locator
+            except Exception:
+                pass
+            remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+            await page.wait_for_timeout(min(100, remaining_ms))
+        return None
+
+    async def controls_diagnostic(phase: str) -> str:
+        controls: dict[str, bool] = {}
+        for label in (EDITOR_FILE_MENU, EDITOR_EXPORT_MENU):
+            locator = page.get_by_text(label, exact=True).filter(visible=True).nth(0)
+            try:
+                controls[label] = bool(await locator.count() and await locator.is_visible())
+            except Exception:
+                controls[label] = False
+        editor_route = urlparse(str(getattr(page, "url", ""))).path.split("/", 2)[1:2]
+        return json.dumps(
+            {
+                "kind": "editor_export_controls_unavailable",
+                "phase": phase,
+                "editor_route": editor_route[0] if editor_route else "",
+                "document_type": str(entry.get("type", "")),
+                "controls": controls,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+    file_menu = await wait_for_visible(EDITOR_FILE_MENU)
+    if file_menu is None:
+        raise BatchError(await controls_diagnostic("file_menu"))
+    await file_menu.click(timeout=max(1, int((deadline - time.monotonic()) * 1000)))
+    export_menu = await wait_for_visible(EDITOR_EXPORT_MENU)
+    if export_menu is None:
+        raise BatchError(await controls_diagnostic("export_menu"))
+    await export_menu.click(timeout=max(1, int((deadline - time.monotonic()) * 1000)))
+    return await find_download_menu(
+        page,
+        entry,
+        max(1, int((deadline - time.monotonic()) * 1000)),
+    )
+
+
+def source_identity_plan_bound(entry: dict[str, Any]) -> bool:
+    """Return whether inventory supplied stable source identity for this entry."""
+
+    return bool(
+        str(entry.get("remote_id") or "").strip()
+        and str(entry.get("source_url") or "").strip()
+    )
+
+
+def write_semantic_binding_diagnostic(
+    progress_path: Path,
+    *,
+    entry: dict[str, Any],
+    browser_result: dict[str, Any],
+    inspection: dict[str, Any],
+) -> Path:
+    """Persist a redacted audit record before blocking an unbound VSDX."""
+
+    root = (
+        progress_path.expanduser().resolve(strict=False).parent / "semantic-binding-diagnostics"
+    )
+    if root.is_symlink():
+        raise BatchError(f"semantic diagnostic root must not be a symlink: {root}")
+    root.mkdir(parents=True, exist_ok=True)
+    artifact_id = str(entry["artifact_id"])
+    target = root / f"{artifact_id}.json"
+    if target.is_symlink():
+        raise BatchError(f"semantic diagnostic target must not be a symlink: {target}")
+    payload = {
+        "schema_version": 1,
+        "kind": "content_structure_verified_source_binding_missing",
+        "artifact_id": artifact_id,
+        "source_path": str(entry.get("source_path", "")),
+        "title": str(entry.get("title", "")),
+        "requested_format": str(entry.get("primary_format", "")),
+        "source_identity_plan_bound": source_identity_plan_bound(entry),
+        "observed_source_url": str(browser_result.get("source_url", "")),
+        "observed_remote_id": str(browser_result.get("remote_id", "")),
+        "download": {
+            "path": str(browser_result["download"]["path"]),
+            "suggested_filename": str(
+                browser_result["download"].get("suggested_filename", "")
+            ),
+        },
+        "inspection": inspection,
+        "created_at": utc_now(),
+    }
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    temporary.replace(target)
+    return target
+
+
+def inspection_requires_source_binding_block(inspection: dict[str, Any]) -> bool:
+    return (
+        inspection.get("kind") == "visio-vsdx"
+        and inspection.get("semantic_status") == "source_binding_missing"
+    )
+
+
+def block_structurally_valid_unbound_vsdx(
+    browser_result: dict[str, Any],
+    entry: dict[str, Any],
+    inspection: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    """Persist private evidence without promoting the file to final output."""
+
+    source = Path(browser_result["download"]["path"])
+    if source.is_symlink() or not source.is_file():
+        raise BatchError("semantic-block source must be a regular staged download")
+    diagnostic = write_semantic_binding_diagnostic(
+        args.progress,
+        entry=entry,
+        browser_result=browser_result,
+        inspection=inspection,
+    )
+    recorded = run_json(
+        [
+            sys.executable,
+            str(ARCHIVE_STATE),
+            "mark",
+            "--plan",
+            str(args.plan),
+            "--progress",
+            str(args.progress),
+            "--artifact-id",
+            str(entry["artifact_id"]),
+            "--outcome",
+            "blocked",
+            "--reason",
+            "content_structure_verified_source_binding_missing",
+            "--evidence-file",
+            str(diagnostic),
+            "--evidence-file",
+            str(source),
+        ]
+    )
+    return {
+        "artifact_id": entry["artifact_id"],
+        "status": "blocked",
+        "reason": "content_structure_verified_source_binding_missing",
+        "download": str(source),
+        "diagnostic": str(diagnostic),
+        "inspection": inspection,
+        "progress_counts": recorded.get("counts", {}),
+    }
 
 
 async def wait_for_source_title(page: Any, expected: str, timeout_ms: int) -> str:
@@ -1073,7 +1217,9 @@ def validate_zip_archive(archive: zipfile.ZipFile) -> list[str]:
     return names
 
 
-def inspect_vsdx(path: Path, title: str) -> dict[str, Any]:
+def inspect_vsdx_structure(path: Path) -> tuple[dict[str, Any], str]:
+    """Validate the package and redact-sensitive textual contents before use."""
+
     texts: list[str] = []
     with zipfile.ZipFile(path) as archive:
         names = validate_zip_archive(archive)
@@ -1103,28 +1249,41 @@ def inspect_vsdx(path: Path, title: str) -> dict[str, Any]:
             "VSDX contains potential plaintext credential assignments; "
             f"security review required ({summary})"
         )
-    signals = title_signals(title)
-    if not signals:
-        raise BatchError(f"VSDX title has no distinctive signal and cannot be verified: {title!r}")
-    matched = [signal for signal in signals if signal in combined]
-    semantic_match_method = "title_signal"
-    if not matched:
-        matched = matched_chinese_bigram_pair(title, combined)
-        semantic_match_method = "chinese_bigram_pair"
-    if not matched:
-        raise BatchError(
-            f"VSDX semantic title check failed; no distinctive title signal was found: {signals[:8]}"
-        )
     return {
         "kind": "visio-vsdx",
         "package_entries": len(names),
         "page_part_count": len(page_parts),
         "text_count": len(texts),
+    }, combined
+
+
+def inspect_vsdx_title_semantics(title: str, combined: str) -> dict[str, Any]:
+    """Return title-binding evidence without exposing diagram text."""
+
+    signals = title_signals(title)
+    if not signals:
+        return {
+            "title_signals": [],
+            "matched_title_signals": [],
+            "semantic_match_method": "none",
+            "semantic_status": "source_binding_missing",
+        }
+    matched = [signal for signal in signals if signal in combined]
+    semantic_match_method = "title_signal"
+    if not matched:
+        matched = matched_chinese_bigram_pair(title, combined)
+        semantic_match_method = "chinese_bigram_pair"
+    return {
         "title_signals": signals,
         "matched_title_signals": matched,
         "semantic_match_method": semantic_match_method,
-        "semantic_status": "matched",
+        "semantic_status": "matched" if matched else "source_binding_missing",
     }
+
+
+def inspect_vsdx(path: Path, title: str) -> dict[str, Any]:
+    structure, combined = inspect_vsdx_structure(path)
+    return {**structure, **inspect_vsdx_title_semantics(title, combined)}
 
 
 def xmind_topic_title(topic: Any) -> str:
@@ -1667,6 +1826,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     )
     selected_by_id = {str(item["artifact_id"]): item for item in selected}
     completed: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
     pending: list[dict[str, Any]] = []
     seen_hashes: dict[str, str] = {}
     for result in results:
@@ -1676,6 +1836,16 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         entry = selected_by_id[str(result["artifact_id"])]
         try:
             inspection = inspect_download(Path(result["download"]["path"]), entry)
+            if inspection_requires_source_binding_block(inspection):
+                blocked.append(
+                    block_structurally_valid_unbound_vsdx(
+                        result,
+                        entry,
+                        inspection,
+                        args=args,
+                    )
+                )
+                continue
             prior = seen_hashes.get(inspection["sha256"])
             if prior and prior != entry["artifact_id"]:
                 raise BatchError(
@@ -1716,7 +1886,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         and browser_receipt["scoped_pages_opened"] == browser_receipt["scoped_pages_closed"]
         and browser_receipt["pages_closed_at_exit"] == 0
     )
-    status = "completed" if not pending and lifecycle_ok else "partial"
+    status = "completed" if not pending and not blocked and lifecycle_ok else "partial"
     payload = {
         "schema_version": 1,
         "status": status,
@@ -1726,11 +1896,13 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         "reconciled_count": len(reconciled),
         "reconciled": reconciled,
         "completed_count": len(completed),
+        "blocked_count": len(blocked),
         "pending_count": len(pending),
         "workers": args.workers,
         "concurrency_proof": str(args.concurrency_proof) if proof else None,
         "browser_receipt": browser_receipt,
         "completed": completed,
+        "blocked": blocked,
         "pending": pending,
         "audit": audit,
         "created_at": utc_now(),
