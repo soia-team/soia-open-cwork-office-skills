@@ -782,10 +782,10 @@ async def find_title(page: Any, title: str, timeout_ms: int) -> Any:
             pass
         visible_rows = page.locator("div.file_list_item").filter(visible=True)
         row_count = min(await visible_rows.count(), 6)
-        row_texts = tuple(
-            (await visible_rows.nth(index).inner_text()).strip()[:160]
-            for index in range(row_count)
-        )
+        row_texts_list: list[str] = []
+        for index in range(row_count):
+            row_texts_list.append((await visible_rows.nth(index).inner_text()).strip()[:160])
+        row_texts = tuple(row_texts_list)
         marker = (
             int(await page.evaluate("() => Math.round(window.scrollY || 0)")),
             (await page.locator("body").inner_text())[-500:],
