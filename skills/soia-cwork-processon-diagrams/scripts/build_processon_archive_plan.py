@@ -15,6 +15,13 @@ from typing import Any
 
 PLAN_SCHEMA_VERSION = 1
 KNOWN_TYPES = {"flowchart", "mindmap", "unknown"}
+# ``selection_rule`` documents the runner's current menu preference.  It is not
+# consumed as an archive identity or export-format contract: the batch runner
+# derives its bounded menu candidates from ``primary_format`` and
+# ``primary_menu``.  Keep it out of plan-drift gating so a documentation-only
+# preference improvement does not strand an otherwise auditable long-running
+# archive plan.
+NON_CONTRACT_ENTRY_FIELDS = {"selection_rule"}
 DEFAULT_EXPORTS = {
     "flowchart": {
         "primary_format": "vsdx",
@@ -258,7 +265,42 @@ def verify_plan(plan_path: Path, checkpoint_path: Path) -> dict[str, Any]:
     current = build_plan(checkpoint_path, checkpoint)
     expected = {entry["artifact_id"] for entry in current["entries"]}
     actual = {entry.get("artifact_id") for entry in plan.get("entries", [])}
-    entry_content_match = plan.get("entries") == current.get("entries")
+    plan_entries = plan.get("entries", [])
+    current_entries = current.get("entries", [])
+    entry_content_match = plan_entries == current_entries
+
+    def contract_entries(entries: Any) -> list[dict[str, Any]] | None:
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) for entry in entries
+        ):
+            return None
+        return [
+            {
+                field: value
+                for field, value in entry.items()
+                if field not in NON_CONTRACT_ENTRY_FIELDS
+            }
+            for entry in entries
+        ]
+
+    plan_contract_entries = contract_entries(plan_entries)
+    current_contract_entries = contract_entries(current_entries)
+    entry_contract_match = (
+        plan_contract_entries is not None
+        and plan_contract_entries == current_contract_entries
+    )
+    execution_hint_drift_fields = []
+    if isinstance(plan_entries, list) and isinstance(current_entries, list) and all(
+        isinstance(entry, dict) for entry in [*plan_entries, *current_entries]
+    ):
+        execution_hint_drift_fields = sorted(
+            {
+                field
+                for old, fresh in zip(plan_entries, current_entries)
+                for field in NON_CONTRACT_ENTRY_FIELDS
+                if old.get(field) != fresh.get(field)
+            }
+        )
     stage_flags_match = all(
         plan.get(field) == current.get(field)
         for field in (
@@ -274,7 +316,7 @@ def verify_plan(plan_path: Path, checkpoint_path: Path) -> dict[str, Any]:
         "status": "passed"
         if plan.get("checkpoint_sha256") == current["checkpoint_sha256"]
         and actual == expected
-        and entry_content_match
+        and entry_contract_match
         and stage_flags_match
         else "failed",
         "plan_checkpoint_sha256": plan.get("checkpoint_sha256", ""),
@@ -282,6 +324,8 @@ def verify_plan(plan_path: Path, checkpoint_path: Path) -> dict[str, Any]:
         "missing_artifact_count": len(expected - actual),
         "stale_artifact_count": len(actual - expected),
         "entry_content_match": entry_content_match,
+        "entry_contract_match": entry_contract_match,
+        "execution_hint_drift_fields": execution_hint_drift_fields,
         "stage_flags_match": stage_flags_match,
         "plan_ready_for_known_artifacts": bool(plan.get("ready_for_known_artifacts")),
         "current_ready_for_known_artifacts": bool(
