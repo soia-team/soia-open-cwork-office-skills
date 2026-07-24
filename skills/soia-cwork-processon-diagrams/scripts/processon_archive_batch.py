@@ -760,7 +760,7 @@ async def navigate_directory(
 
 async def find_title(page: Any, title: str, timeout_ms: int) -> Any:
     deadline = time.monotonic() + timeout_ms / 1000
-    previous_marker: tuple[int, str] | None = None
+    previous_marker: tuple[int, str, tuple[str, ...]] | None = None
     unchanged = 0
     while time.monotonic() < deadline:
         try:
@@ -780,13 +780,23 @@ async def find_title(page: Any, title: str, timeout_ms: int) -> Any:
                     return locator
         except Exception:
             pass
+        visible_rows = page.locator("div.file_list_item").filter(visible=True)
+        row_count = min(await visible_rows.count(), 6)
+        row_texts = tuple(
+            (await visible_rows.nth(index).inner_text()).strip()[:160]
+            for index in range(row_count)
+        )
         marker = (
             int(await page.evaluate("() => Math.round(window.scrollY || 0)")),
             (await page.locator("body").inner_text())[-500:],
+            row_texts,
         )
         unchanged = unchanged + 1 if marker == previous_marker else 0
         previous_marker = marker
-        if unchanged >= 2:
+        # A virtual list may update rows while window.scrollY and the body
+        # tail remain unchanged.  Require several unchanged row snapshots
+        # before giving up, but keep the overall timeout bounded.
+        if unchanged >= 4:
             break
         await scroll_processon_file_list(page)
         await page.wait_for_timeout(350)
