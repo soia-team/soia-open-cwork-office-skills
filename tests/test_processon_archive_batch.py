@@ -67,9 +67,11 @@ class DelayedEditorLocator(MenuLocator):
         if self.label == MODULE.EDITOR_FILE_MENU:
             return self.page.has_file and self.page.waits >= self.page.file_visible_after
         if self.label == MODULE.EDITOR_EXPORT_MENU:
-            return self.page.file_clicked
+            return self.page.file_clicked or self.page.direct_mindmap_export
         if self.label == "VISIO文件":
             return self.page.file_clicked
+        if self.label == "Xmind文件":
+            return self.page.direct_mindmap_export
         return False
 
     async def count(self):
@@ -82,9 +84,10 @@ class DelayedEditorLocator(MenuLocator):
 class DelayedEditorPage:
     url = "https://www.processon.com/diagraming/example"
 
-    def __init__(self, *, file_visible_after=0, has_file=True):
+    def __init__(self, *, file_visible_after=0, has_file=True, direct_mindmap_export=False):
         self.file_visible_after = file_visible_after
         self.has_file = has_file
+        self.direct_mindmap_export = direct_mindmap_export
         self.waits = 0
         self.file_clicked = False
         self.clicked = []
@@ -169,6 +172,22 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
         self.assertEqual(diagnostic["phase"], "file_menu")
         self.assertEqual(diagnostic["editor_route"], "diagraming")
         self.assertFalse(diagnostic["controls"]["文件"])
+
+    def test_mindmap_editor_exports_directly_without_file_menu(self):
+        page = DelayedEditorPage(has_file=False, direct_mindmap_export=True)
+        entry = self.entry("mindmap")
+        entry.update(
+            {
+                "type": "mindmap",
+                "primary_format": "xmind",
+                "primary_menu": "Xmind文件",
+            }
+        )
+        label, _locator = asyncio.run(
+            MODULE.open_editor_export_menu(page, entry, timeout_ms=100)
+        )
+        self.assertEqual(label, "Xmind文件")
+        self.assertEqual([label for label, _timeout in page.clicked], ["导出为"])
 
     def test_processon_editor_url_requires_diagram_identifier(self):
         self.assertTrue(

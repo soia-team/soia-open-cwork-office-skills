@@ -1,9 +1,9 @@
 ---
 name: soia-cwork-processon-diagrams
 description: 安全盘点并按授权导出、校验和归档 ProcessOn 图表。触发：ProcessOn 盘点、导出架构图、批量下载图表
-version: 1.10.10
+version: 1.10.11
 created_at: 2026-07-20 18:57:53
-updated_at: 2026-07-24 11:26:39
+updated_at: 2026-07-24 11:34:48
 created_by: gpt-5.6-sol
 updated_by: gpt-5.6-sol
 dependencies:
@@ -221,7 +221,7 @@ python3 scripts/processon_archive_state.py next \
 
 1. 先用 runner `snapshot` 取得当前目录可见文字和语义控件，再生成小批次 action JSON；根据快照定位目标的“下载/导出”，不依赖固定坐标或私有 CSS。点击文件标题后，兼容官方同页进入编辑器和新 popup 两种行为；在编辑器中按可见的“文件 → 导出为”导出，不再假定列表行菜单始终存在。ProcessOn 文件列表可能虚拟化；目标条目未进入当前视口时先用 `scroll` 并重新快照，不能把定位超时写成文件不存在。按已确认类型选择：
    - 流程图默认导出 `.vsdx`；runner 先选当前编辑器的 `导出全部画布 （.vsdx）`/旧标签 `导出全部画布 (.vsdx)` 保留全部画布，该项不可见时再兼容 `VISIO文件` / `VISIO文件 beta`；
-   - 思维导图默认选 `Xmind文件`/`.xmind`；
+   - 思维导图默认选 `Xmind文件`/`.xmind`；其官方编辑器的 `导出为` 是一级菜单，不要求也不尝试流程图的“文件”菜单；
    - 无法确认类型的文件加入“待人工确认”清单，不自动打开下载菜单。
    默认格式不可用、会员/权限阻断或下载失败时回退 POS，并明确记录“原请求格式、实际格式、降级原因”，不得静默替换。列表页点击无文件时进入官方编辑器重试 XMind/POS/POSM；若这些原生格式均无文件、但 Markdown 能下载，只能把 Markdown 作为诊断证据并将 artifact 标为 `blocked`，不能把 Markdown 冒充 XMind/POS 完成。格式选择见 [ProcessOn 能力与格式](references/processon-capabilities.md)。
 2. 首次需要受管临时目录时运行 `paths --ensure`；由 runner `download` 动作捕获真实下载事件，不凭 Toast 判断成功。正式 batch 用 `download.save_as(<managed-root>/<run-id>/<artifact_id>/<原文件名>)` 直接保存，每个 artifact 独占目录；随后结构/语义校验并用同文件系统 hard-link + atomic replace + unlink 完成 no-copy move，manifest 落盘失败时回滚目标且保留源文件。ProcessOn 导出是异步任务：同一 worker 页一次只发起一个 artifact，必须等真实落地并完成结构/语义校验后才能切换条目。默认串行；只有存在当前计划对应的 `concurrency-proof.json`，且两份独立 VSDX/XMind 的文件内文字反证均通过时，才允许 `processon_archive_batch.py --workers 2`。并发下载仍由一个 writer 串行执行 finalize、`metadata.yml`、source-links、record、进度镜像和 audit。同目录同标题的 collision-risk 项在 1 路和多路模式下都不进入自动队列，必须取得行级稳定 ID/URL 或人工逐项确认后走专用流程。固定 `sleep`、点击成功和短时下载事件超时都不能替代落盘信号。临时源页面必须在下载完成/失败后的 `finally` 中关闭。先 dry-run，再归档。下面的单文件 finalizer 默认复制；正式 batch 自动显式使用 `--move`：
