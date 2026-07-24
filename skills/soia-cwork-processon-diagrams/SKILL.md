@@ -1,9 +1,9 @@
 ---
 name: soia-cwork-processon-diagrams
 description: 安全盘点并按授权导出、校验和归档 ProcessOn 图表。触发：ProcessOn 盘点、导出架构图、批量下载图表
-version: 1.10.11
+version: 1.10.12
 created_at: 2026-07-20 18:57:53
-updated_at: 2026-07-24 11:34:48
+updated_at: 2026-07-24 11:40:24
 created_by: gpt-5.6-sol
 updated_by: gpt-5.6-sol
 dependencies:
@@ -218,6 +218,17 @@ python3 scripts/processon_archive_state.py next \
 ```
 
 `init` 在进度文件已存在时只接受相同计划 SHA-256，保留既有成功/失败/阻断证据并机械刷新计数；计划变更时 fail closed。`next` 默认跳过已完成、失败和阻断项，显式重试时才使用 `--include-failed` 或 `--include-blocked`。
+
+批处理默认同样跳过终态。若某个**已失败**条目已有针对性的修复证据，只能以 `--retry-failed` 加逐条 `--artifact-id` 重试；缺少任一开关、ID 重复、ID 不在当前计划或当前并非 `failed` 都会 fail closed。该入口不会重试 `blocked`、未知项、碰撞项或整条失败队列：
+
+```bash
+python3 scripts/processon_archive_batch.py \
+  --plan <run-dir>/artifacts/archive-plan.json \
+  --progress <run-dir>/artifacts/download-progress.json \
+  --team-url '<team-url>' --config <private-config.yml> \
+  --retry-failed --artifact-id '<artifact-id-1>' --artifact-id '<artifact-id-2>' \
+  --workers 1 --limit 2 --dry-run
+```
 
 1. 先用 runner `snapshot` 取得当前目录可见文字和语义控件，再生成小批次 action JSON；根据快照定位目标的“下载/导出”，不依赖固定坐标或私有 CSS。点击文件标题后，兼容官方同页进入编辑器和新 popup 两种行为；在编辑器中按可见的“文件 → 导出为”导出，不再假定列表行菜单始终存在。ProcessOn 文件列表可能虚拟化；目标条目未进入当前视口时先用 `scroll` 并重新快照，不能把定位超时写成文件不存在。按已确认类型选择：
    - 流程图默认导出 `.vsdx`；runner 先选当前编辑器的 `导出全部画布 （.vsdx）`/旧标签 `导出全部画布 (.vsdx)` 保留全部画布，该项不可见时再兼容 `VISIO文件` / `VISIO文件 beta`；
