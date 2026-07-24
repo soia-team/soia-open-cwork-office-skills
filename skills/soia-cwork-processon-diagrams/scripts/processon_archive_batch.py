@@ -742,6 +742,17 @@ async def open_editor_export_menu(
             sort_keys=True,
         )
 
+    if str(entry.get("type", "")).lower() == "mindmap":
+        export_menu = await wait_for_visible(EDITOR_EXPORT_MENU)
+        if export_menu is None:
+            raise BatchError(await controls_diagnostic("mindmap_export_menu"))
+        await export_menu.click(timeout=max(1, int((deadline - time.monotonic()) * 1000)))
+        return await find_download_menu(
+            page,
+            entry,
+            max(1, int((deadline - time.monotonic()) * 1000)),
+        )
+
     file_menu = await wait_for_visible(EDITOR_FILE_MENU)
     if file_menu is None:
         raise BatchError(await controls_diagnostic("file_menu"))
