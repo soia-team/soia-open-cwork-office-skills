@@ -84,17 +84,33 @@ class DelayedEditorLocator(MenuLocator):
 class DelayedEditorPage:
     url = "https://www.processon.com/diagraming/example"
 
-    def __init__(self, *, file_visible_after=0, has_file=True, direct_mindmap_export=False):
+    def __init__(
+        self,
+        *,
+        file_visible_after=0,
+        has_file=True,
+        direct_mindmap_export=False,
+        attribute_only_labels=(),
+    ):
         self.file_visible_after = file_visible_after
         self.has_file = has_file
         self.direct_mindmap_export = direct_mindmap_export
+        self.attribute_only_labels = set(attribute_only_labels)
         self.waits = 0
         self.file_clicked = False
         self.clicked = []
 
     def get_by_text(self, label, *, exact):
         assert exact is True
+        if label in self.attribute_only_labels:
+            return MenuLocator(False)
         return DelayedEditorLocator(self, label, False)
+
+    def locator(self, selector):
+        for label in self.attribute_only_labels:
+            if label in selector:
+                return DelayedEditorLocator(self, label, False)
+        return MenuLocator(False)
 
     async def wait_for_timeout(self, _milliseconds):
         self.waits += 1
@@ -230,6 +246,26 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
     def test_mindmap_editor_exports_directly_without_file_menu(self):
         page = DelayedEditorPage(has_file=False, direct_mindmap_export=True)
         entry = self.entry("mindmap")
+        entry.update(
+            {
+                "type": "mindmap",
+                "primary_format": "xmind",
+                "primary_menu": "Xmind文件",
+            }
+        )
+        label, _locator = asyncio.run(
+            MODULE.open_editor_export_menu(page, entry, timeout_ms=100)
+        )
+        self.assertEqual(label, "Xmind文件")
+        self.assertEqual([label for label, _timeout in page.clicked], ["导出为"])
+
+    def test_mindmap_editor_accepts_attribute_only_export_control(self):
+        page = DelayedEditorPage(
+            has_file=False,
+            direct_mindmap_export=True,
+            attribute_only_labels=[MODULE.EDITOR_EXPORT_MENU],
+        )
+        entry = self.entry("mindmap-attribute")
         entry.update(
             {
                 "type": "mindmap",

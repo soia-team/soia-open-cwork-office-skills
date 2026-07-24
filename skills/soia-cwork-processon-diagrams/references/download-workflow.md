@@ -8,7 +8,7 @@
 
 对 VSDX，批处理按 `导出全部画布 (.vsdx)` → `VISIO文件` → `VISIO文件 beta` 的顺序检查当前可见精确标签；不对每个不存在的候选各等一次完整超时。实际使用的标签写入下载回执和 `metadata.yml`。
 
-思维导图编辑器使用一级 `导出为`，随后精确选择计划中的 `Xmind文件`；不得先寻找流程图专用的“文件”菜单。若一级导出控件在有界等待内仍不可见，回执记录 `editor_export_controls_unavailable` 和页面类型，保留为定向诊断而不是重复盲试。
+思维导图编辑器使用一级 `导出为`，随后精确选择计划中的 `Xmind文件`；不得先寻找流程图专用的“文件”菜单。菜单定位同时读取可见正文和已知的 `aria-label`、`title`、`data-title`、`data-tooltip` 属性，但属性选择器是技能内固定菜单名白名单，不接收行动文件或图表标题提供的 CSS。若一级导出控件在有界等待内仍不可见，回执记录 `editor_export_controls_unavailable` 和页面类型，保留为定向诊断而不是重复盲试。
 
 ```bash
 python3 scripts/processon_browser_runner.py login --url '<team-url>'
