@@ -716,6 +716,137 @@ def safe_download_path(download_dir: Path, artifact_id: str, suggested_filename:
     return destination
 
 
+def staging_receipt_root(progress_path: Path) -> Path:
+    """Return the private, per-run journal for downloaded-but-unfinalized files."""
+
+    return progress_path.expanduser().resolve(strict=False).parent / "staging-receipts"
+
+
+def staging_receipt_path(progress_path: Path, artifact_id: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{64}", artifact_id):
+        raise BatchError("staging receipt requires a SHA-256 artifact id")
+    root = staging_receipt_root(progress_path)
+    if root.is_symlink():
+        raise BatchError(f"staging receipt root must not be a symlink: {root}")
+    return root / f"{artifact_id}.json"
+
+
+def write_staging_receipt(progress_path: Path, result: dict[str, Any]) -> Path:
+    """Atomically checkpoint a verified browser download before finalization.
+
+    The checkpoint contains only source-binding metadata and the managed
+    artifact-isolated path. It makes an interrupted batch recoverable without
+    trusting an arbitrary file later found in staging.
+    """
+
+    artifact_id = str(result.get("artifact_id", ""))
+    download = result.get("download")
+    if not isinstance(download, dict):
+        raise BatchError("cannot checkpoint a browser result without download metadata")
+    required = ("source_path", "title", "requested_format", "source_url", "source_title", "remote_id")
+    if any(not str(result.get(key, "")).strip() for key in required):
+        raise BatchError("cannot checkpoint a browser result without source-binding metadata")
+    if not str(download.get("path", "")).strip() or not str(download.get("suggested_filename", "")).strip():
+        raise BatchError("cannot checkpoint a browser result without download path and filename")
+    target = staging_receipt_path(progress_path, artifact_id)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_symlink():
+        raise BatchError(f"staging receipt target must not be a symlink: {target}")
+    payload = {
+        "schema_version": 1,
+        "kind": "processon_staging_download",
+        "artifact_id": artifact_id,
+        "source_path": str(result["source_path"]),
+        "title": str(result["title"]),
+        "requested_format": str(result["requested_format"]),
+        "source_url": str(result["source_url"]),
+        "source_title": str(result["source_title"]),
+        "remote_id": str(result["remote_id"]),
+        "download_menu": str(result.get("download_menu", "")),
+        "download": {
+            "path": str(download["path"]),
+            "bytes": int(download.get("bytes", 0)),
+            "suggested_filename": str(download["suggested_filename"]),
+        },
+        "created_at": utc_now(),
+    }
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    temporary.replace(target)
+    return target
+
+
+def remove_staging_receipt(progress_path: Path, artifact_id: str) -> None:
+    target = staging_receipt_path(progress_path, artifact_id)
+    if not target.exists():
+        return
+    if target.is_symlink() or not target.is_file():
+        raise BatchError(f"staging receipt target is not a regular file: {target}")
+    target.unlink()
+
+
+def load_staging_result(
+    receipt_path: Path, entry: dict[str, Any], *, args: argparse.Namespace
+) -> dict[str, Any]:
+    """Fail closed unless a journal binds one regular staged file to one plan entry."""
+
+    if receipt_path.is_symlink() or not receipt_path.is_file():
+        raise BatchError(f"staging receipt is not a regular file: {receipt_path}")
+    payload = load_json(receipt_path)
+    artifact_id = str(entry.get("artifact_id", ""))
+    if (
+        receipt_path.name != f"{artifact_id}.json"
+        or payload.get("schema_version") != 1
+        or payload.get("kind") != "processon_staging_download"
+        or str(payload.get("artifact_id", "")) != artifact_id
+    ):
+        raise BatchError(f"staging receipt does not bind the expected artifact: {receipt_path}")
+    for receipt_key, plan_key in (
+        ("source_path", "source_path"),
+        ("title", "title"),
+        ("requested_format", "primary_format"),
+    ):
+        if str(payload.get(receipt_key, "")) != str(entry.get(plan_key, "")):
+            raise BatchError(f"staging receipt {receipt_key} differs from the plan: {receipt_path}")
+    source_url = str(payload.get("source_url", ""))
+    source_title = str(payload.get("source_title", ""))
+    remote_id = str(payload.get("remote_id", ""))
+    if not source_title_matches(str(entry["title"]), source_title):
+        raise BatchError(f"staging receipt source title differs from the plan: {receipt_path}")
+    observed_remote_id = verify_source_identity(entry, source_url)
+    if observed_remote_id != remote_id:
+        raise BatchError(f"staging receipt remote id differs from source URL: {receipt_path}")
+    download = payload.get("download")
+    if not isinstance(download, dict):
+        raise BatchError(f"staging receipt has no download object: {receipt_path}")
+    source = Path(str(download.get("path", ""))).expanduser().resolve(strict=False)
+    expected_parent = (args.download_dir / artifact_id).expanduser().resolve(strict=False)
+    if source.parent != expected_parent or source.is_symlink() or not source.is_file():
+        raise BatchError(f"staging receipt download is not an isolated regular file: {receipt_path}")
+    if int(download.get("bytes", 0)) != source.stat().st_size or source.stat().st_size <= 0:
+        raise BatchError(f"staging receipt byte count differs from staged file: {receipt_path}")
+    suggested = str(download.get("suggested_filename", ""))
+    if Path(suggested).name != source.name:
+        raise BatchError(f"staging receipt filename differs from staged file: {receipt_path}")
+    return {
+        "artifact_id": artifact_id,
+        "source_path": str(entry["source_path"]),
+        "title": str(entry["title"]),
+        "requested_format": str(entry["primary_format"]),
+        "source_url": source_url,
+        "source_title": source_title,
+        "remote_id": remote_id,
+        "download_menu": str(payload.get("download_menu", "")),
+        "download": {
+            "path": str(source),
+            "bytes": source.stat().st_size,
+            "suggested_filename": suggested,
+        },
+        "ok": True,
+    }
+
+
 def download_menu_candidates(entry: dict[str, Any]) -> list[str]:
     """Return ordered, exact ProcessOn menu labels for the requested format."""
 
@@ -1026,6 +1157,7 @@ async def download_one(
     entry: dict[str, Any],
     *,
     download_dir: Path,
+    progress_path: Path,
     timeout_ms: int,
     receipt: BrowserReceipt,
 ) -> dict[str, Any]:
@@ -1076,6 +1208,7 @@ async def download_one(
         }
         receipt.downloaded_files.append(item)
         result["download"] = item
+        result["staging_receipt"] = str(write_staging_receipt(progress_path, result))
         result["ok"] = True
         return result
     except Exception as exc:
@@ -1095,6 +1228,7 @@ async def worker_loop(
     plan: dict[str, Any],
     team_url: str,
     download_dir: Path,
+    progress_path: Path,
     settle_ms: int,
     timeout_ms: int,
     receipt: BrowserReceipt,
@@ -1128,6 +1262,7 @@ async def worker_loop(
                             page,
                             entry,
                             download_dir=download_dir,
+                            progress_path=progress_path,
                             timeout_ms=timeout_ms,
                             receipt=receipt,
                         )
@@ -1157,6 +1292,7 @@ async def browser_download_batch(
     team_url: str,
     profile_dir: Path,
     download_dir: Path,
+    progress_path: Path,
     workers: int,
     settle_ms: int,
     timeout_ms: int,
@@ -1203,6 +1339,7 @@ async def browser_download_batch(
                         plan=plan,
                         team_url=team_url,
                         download_dir=download_dir,
+                        progress_path=progress_path,
                         settle_ms=settle_ms,
                         timeout_ms=timeout_ms,
                         receipt=receipt,
@@ -1872,6 +2009,72 @@ def finalize_result(
     }
 
 
+def reconcile_staged_downloads(
+    plan: dict[str, Any], progress: dict[str, Any], *, args: argparse.Namespace
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Recover only journal-bound staged files left by an interrupted batch.
+
+    A raw file in staging is never sufficient evidence. Recovery requires the
+    per-artifact atomic receipt written after `download.save_as`, then repeats
+    source identity, file isolation and structure checks before finalization.
+    """
+
+    root = staging_receipt_root(args.progress)
+    if not root.exists():
+        return [], []
+    if root.is_symlink() or not root.is_dir():
+        raise BatchError(f"staging receipt root is not a regular directory: {root}")
+    plan_by_id = {
+        str(entry.get("artifact_id", "")): entry
+        for entry in plan["entries"]
+        if entry.get("artifact_id")
+    }
+    done = progress_done_ids(progress)
+    recovered: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for receipt_path in sorted(root.glob("*.json")):
+        artifact_id = receipt_path.stem
+        if artifact_id in done:
+            remove_staging_receipt(args.progress, artifact_id)
+            continue
+        entry = plan_by_id.get(artifact_id)
+        if entry is None:
+            errors.append({"receipt": str(receipt_path), "error": "artifact_not_in_current_plan"})
+            continue
+        if (
+            entry.get("confirmation_required")
+            or entry.get("type") == "unknown"
+            or entry.get("collision_risk") not in {None, "", "none_detected"}
+        ):
+            errors.append({"receipt": str(receipt_path), "error": "artifact_not_eligible_for_auto_recovery"})
+            continue
+        try:
+            browser_result = load_staging_result(receipt_path, entry, args=args)
+            inspection = inspect_download(Path(browser_result["download"]["path"]), entry)
+            if inspection_requires_source_binding_block(inspection):
+                recovered.append(
+                    block_structurally_valid_unbound_vsdx(
+                        browser_result,
+                        entry,
+                        inspection,
+                        args=args,
+                    )
+                )
+            else:
+                recovered.append(finalize_result(browser_result, entry, args=args))
+            remove_staging_receipt(args.progress, artifact_id)
+            done.add(artifact_id)
+        except Exception as exc:
+            errors.append(
+                {
+                    "receipt": str(receipt_path),
+                    "artifact_id": artifact_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+    return recovered, errors
+
+
 def write_receipt(receipt_dir: Path, payload: dict[str, Any]) -> Path:
     receipt_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -1904,7 +2107,14 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         ]
     )
     reconciled: list[dict[str, Any]] = []
+    staging_recovered: list[dict[str, Any]] = []
+    staging_recovery_errors: list[dict[str, str]] = []
     if not args.dry_run:
+        staging_recovered, staging_recovery_errors = reconcile_staged_downloads(
+            plan, progress, args=args
+        )
+        if staging_recovered:
+            progress = load_json(args.progress)
         reconciled = reconcile_existing(plan, progress, args=args)
         if reconciled:
             progress = load_json(args.progress)
@@ -1938,6 +2148,8 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             "legacy_flat_download_review": legacy_review,
             "created_at": utc_now(),
             "reconciled": reconciled,
+            "staging_recovered": staging_recovered,
+            "staging_recovery_errors": staging_recovery_errors,
         }
         payload["receipt_file"] = str(write_receipt(args.receipt_dir, payload))
         return payload
@@ -1954,8 +2166,10 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
                 {"source_directory": directory, "artifact_ids": [item["artifact_id"] for item in items]}
                 for directory, items in build_jobs(selected, args.workers)
             ],
-            "created_at": utc_now(),
-        }
+                "created_at": utc_now(),
+                "staging_recovered": staging_recovered,
+                "staging_recovery_errors": staging_recovery_errors,
+            }
         payload["receipt_file"] = str(write_receipt(args.receipt_dir, payload))
         return payload
 
@@ -1966,6 +2180,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             team_url=args.team_url,
             profile_dir=args.profile_dir,
             download_dir=args.download_dir,
+            progress_path=args.progress,
             workers=args.workers,
             settle_ms=args.settle_ms,
             timeout_ms=args.timeout_ms,
@@ -1984,14 +2199,14 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         try:
             inspection = inspect_download(Path(result["download"]["path"]), entry)
             if inspection_requires_source_binding_block(inspection):
-                blocked.append(
-                    block_structurally_valid_unbound_vsdx(
-                        result,
-                        entry,
-                        inspection,
-                        args=args,
-                    )
+                blocked_result = block_structurally_valid_unbound_vsdx(
+                    result,
+                    entry,
+                    inspection,
+                    args=args,
                 )
+                blocked.append(blocked_result)
+                remove_staging_receipt(args.progress, str(entry["artifact_id"]))
                 continue
             prior = seen_hashes.get(inspection["sha256"])
             if prior and prior != entry["artifact_id"]:
@@ -1999,7 +2214,9 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
                     f"same batch produced an identical SHA-256 for two artifacts: {prior}, {entry['artifact_id']}"
                 )
             seen_hashes[inspection["sha256"]] = str(entry["artifact_id"])
-            completed.append(finalize_result(result, entry, args=args))
+            completed_result = finalize_result(result, entry, args=args)
+            completed.append(completed_result)
+            remove_staging_receipt(args.progress, str(entry["artifact_id"]))
         except Exception as exc:
             pending.append(
                 {
@@ -2042,6 +2259,10 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         "legacy_flat_download_review": legacy_review,
         "reconciled_count": len(reconciled),
         "reconciled": reconciled,
+        "staging_recovered_count": len(staging_recovered),
+        "staging_recovered": staging_recovered,
+        "staging_recovery_error_count": len(staging_recovery_errors),
+        "staging_recovery_errors": staging_recovery_errors,
         "completed_count": len(completed),
         "blocked_count": len(blocked),
         "pending_count": len(pending),

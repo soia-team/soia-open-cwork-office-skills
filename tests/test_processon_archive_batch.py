@@ -195,6 +195,44 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
                 artifact_ids=["collision"],
             )
 
+    def test_staging_receipt_binds_one_artifact_isolated_download(self):
+        artifact_id = "a" * 64
+        entry = self.entry(artifact_id)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            progress = root / "run" / "artifacts" / "download-progress.json"
+            download_root = root / "staging"
+            source = download_root / artifact_id / "diagram.vsdx"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"staged-by-test")
+            result = {
+                "artifact_id": artifact_id,
+                "source_path": entry["source_path"],
+                "title": entry["title"],
+                "requested_format": "vsdx",
+                "source_url": "https://www.processon.com/diagraming/remote-id",
+                "source_title": f"{entry['title']}-ProcessOn",
+                "remote_id": "remote-id",
+                "download_menu": "VISIO文件",
+                "download": {
+                    "path": str(source),
+                    "bytes": source.stat().st_size,
+                    "suggested_filename": source.name,
+                },
+            }
+            receipt = MODULE.write_staging_receipt(progress, result)
+            loaded = MODULE.load_staging_result(
+                receipt,
+                entry,
+                args=argparse.Namespace(download_dir=download_root),
+            )
+            self.assertEqual(loaded["remote_id"], "remote-id")
+            self.assertEqual(
+                loaded["download"]["path"], str(source.resolve(strict=False))
+            )
+            MODULE.remove_staging_receipt(progress, artifact_id)
+            self.assertFalse(receipt.exists())
+
     def test_vsdx_download_menu_prefers_all_canvases(self):
         label, _locator = asyncio.run(
             MODULE.find_download_menu(
