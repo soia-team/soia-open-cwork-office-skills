@@ -52,6 +52,52 @@ class MenuPage:
         return None
 
 
+class DelayedEditorLocator(MenuLocator):
+    def __init__(self, page, label, visible):
+        super().__init__(visible)
+        self.page = page
+        self.label = label
+
+    async def click(self, *, timeout):
+        self.page.clicked.append((self.label, timeout))
+        if self.label == MODULE.EDITOR_FILE_MENU:
+            self.page.file_clicked = True
+
+    def current_visible(self):
+        if self.label == MODULE.EDITOR_FILE_MENU:
+            return self.page.has_file and self.page.waits >= self.page.file_visible_after
+        if self.label == MODULE.EDITOR_EXPORT_MENU:
+            return self.page.file_clicked
+        if self.label == "VISIO文件":
+            return self.page.file_clicked
+        return False
+
+    async def count(self):
+        return 1 if self.current_visible() else 0
+
+    async def is_visible(self):
+        return self.current_visible()
+
+
+class DelayedEditorPage:
+    url = "https://www.processon.com/diagraming/example"
+
+    def __init__(self, *, file_visible_after=0, has_file=True):
+        self.file_visible_after = file_visible_after
+        self.has_file = has_file
+        self.waits = 0
+        self.file_clicked = False
+        self.clicked = []
+
+    def get_by_text(self, label, *, exact):
+        assert exact is True
+        return DelayedEditorLocator(self, label, False)
+
+    async def wait_for_timeout(self, _milliseconds):
+        self.waits += 1
+        await asyncio.sleep(0.001)
+
+
 class ProcessOnArchiveBatchTests(unittest.TestCase):
     def entry(self, artifact_id="a", collision="none_detected"):
         return {
@@ -106,6 +152,24 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
         )
         self.assertEqual(label, "导出全部画布 （.vsdx）")
 
+    def test_editor_export_menu_waits_for_file_control_then_exports(self):
+        page = DelayedEditorPage(file_visible_after=2)
+        label, _locator = asyncio.run(
+            MODULE.open_editor_export_menu(page, self.entry("delayed"), timeout_ms=100)
+        )
+        self.assertEqual(label, "VISIO文件")
+        self.assertEqual([label for label, _timeout in page.clicked[:2]], ["文件", "导出为"])
+
+    def test_editor_export_menu_reports_structured_unavailable_controls(self):
+        page = DelayedEditorPage(has_file=False)
+        with self.assertRaises(MODULE.BatchError) as caught:
+            asyncio.run(MODULE.open_editor_export_menu(page, self.entry("missing"), timeout_ms=5))
+        diagnostic = json.loads(str(caught.exception))
+        self.assertEqual(diagnostic["kind"], "editor_export_controls_unavailable")
+        self.assertEqual(diagnostic["phase"], "file_menu")
+        self.assertEqual(diagnostic["editor_route"], "diagraming")
+        self.assertFalse(diagnostic["controls"]["文件"])
+
     def test_processon_editor_url_requires_diagram_identifier(self):
         self.assertTrue(
             MODULE.is_processon_editor_url(
@@ -132,8 +196,9 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
             )
             self.assertEqual(inspected["semantic_status"], "matched")
             self.assertIn("exchange", inspected["matched_title_signals"])
-            with self.assertRaises(MODULE.BatchError):
-                MODULE.inspect_vsdx(path, "《风险管理系统-测试环境-部署图》")
+            unbound = MODULE.inspect_vsdx(path, "《风险管理系统-测试环境-部署图》")
+            self.assertEqual(unbound["semantic_status"], "source_binding_missing")
+            self.assertEqual(unbound["matched_title_signals"], [])
 
     def test_vsdx_requires_short_chinese_signal(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,8 +210,8 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
                     "<PageContents><Shapes><Shape><Text>完全无关内容</Text></Shape></Shapes></PageContents>",
                 )
             self.assertEqual(MODULE.title_signals("订单系统部署架构图"), ["订单"])
-            with self.assertRaises(MODULE.BatchError):
-                MODULE.inspect_vsdx(path, "订单系统部署架构图")
+            inspected = MODULE.inspect_vsdx(path, "订单系统部署架构图")
+            self.assertEqual(inspected["semantic_status"], "source_binding_missing")
 
     def test_vsdx_accepts_two_non_overlapping_chinese_bigram_signals(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -163,7 +228,7 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
             self.assertEqual(inspected["semantic_match_method"], "chinese_bigram_pair")
             self.assertEqual(inspected["matched_title_signals"], ["柜面", "状态"])
 
-    def test_vsdx_rejects_one_or_overlapping_chinese_bigram_signal(self):
+    def test_vsdx_reports_missing_binding_for_one_or_overlapping_chinese_bigram_signal(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "compound.vsdx"
             with zipfile.ZipFile(path, "w") as archive:
@@ -172,8 +237,8 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
                     "visio/pages/page1.xml",
                     "<PageContents><Shapes><Shape><Text>柜面服务</Text></Shape></Shapes></PageContents>",
                 )
-            with self.assertRaises(MODULE.BatchError):
-                MODULE.inspect_vsdx(path, "数字化柜面状态流传")
+            inspected = MODULE.inspect_vsdx(path, "数字化柜面状态流传")
+            self.assertEqual(inspected["semantic_status"], "source_binding_missing")
             self.assertEqual(MODULE.matched_chinese_bigram_pair("数字化", "数字字化"), [])
 
     def test_vsdx_blocks_plaintext_credentials_without_echoing_values(self):
@@ -587,6 +652,88 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
             progress = json.loads(progress_path.read_text(encoding="utf-8"))
             self.assertEqual(progress["counts"]["completed"], 1)
             self.assertEqual(progress["completed"][0]["download_source"], str(source.resolve()))
+
+    def test_structurally_valid_unbound_vsdx_is_blocked_with_private_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan_path = root / "archive-plan.json"
+            progress_path = root / "download-progress.json"
+            entry = self.entry("unbound")
+            archive_plan = {
+                "schema_version": 1,
+                "plan_type": "processon-artifact-archive",
+                "archive_status": "known_ready",
+                "ready_for_known_artifacts": True,
+                "ready_for_archive": True,
+                "counts": {
+                    "total": 1,
+                    "flowchart": 1,
+                    "mindmap": 0,
+                    "unknown": 0,
+                    "pending_confirmation": 0,
+                },
+                "entries": [entry],
+            }
+            plan_path.write_text(json.dumps(archive_plan), encoding="utf-8")
+            MODULE.run_json(
+                [
+                    sys.executable,
+                    str(MODULE.ARCHIVE_STATE),
+                    "init",
+                    "--plan",
+                    str(plan_path),
+                    "--progress",
+                    str(progress_path),
+                ]
+            )
+            source = root / "staging" / "unbound" / "unbound.vsdx"
+            source.parent.mkdir(parents=True)
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("visio/document.xml", "<VisioDocument />")
+                archive.writestr(
+                    "visio/pages/page1.xml",
+                    "<PageContents><Shapes><Shape><Text>unrelated content</Text></Shape></Shapes></PageContents>",
+                )
+            inspection = MODULE.inspect_download(source, entry)
+            self.assertEqual(inspection["semantic_status"], "source_binding_missing")
+            blocked = MODULE.block_structurally_valid_unbound_vsdx(
+                {
+                    "source_url": "https://www.processon.com/diagraming/runtime-only-id",
+                    "remote_id": "runtime-only-id",
+                    "download": {
+                        "path": str(source),
+                        "suggested_filename": "unbound.vsdx",
+                    },
+                },
+                entry,
+                inspection,
+                args=argparse.Namespace(plan=plan_path, progress=progress_path),
+            )
+            self.assertEqual(blocked["status"], "blocked")
+            self.assertTrue(source.is_file())
+            diagnostic = json.loads(Path(blocked["diagnostic"]).read_text(encoding="utf-8"))
+            self.assertFalse(diagnostic["source_identity_plan_bound"])
+            self.assertEqual(
+                diagnostic["kind"], "content_structure_verified_source_binding_missing"
+            )
+            state = json.loads(progress_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["counts"]["completed"], 0)
+            self.assertEqual(state["counts"]["blocked"], 1)
+            evidence = state["blocked"][0]["evidence_files"]
+            self.assertEqual(len(evidence), 2)
+            self.assertTrue(all(Path(item["archived_path"]).is_file() for item in evidence))
+            audit = MODULE.run_json(
+                [
+                    sys.executable,
+                    str(MODULE.ARCHIVE_STATE),
+                    "audit",
+                    "--plan",
+                    str(plan_path),
+                    "--progress",
+                    str(progress_path),
+                ]
+            )
+            self.assertEqual(audit["status"], "passed")
 
     def test_legacy_flat_download_review_revalidates_every_flat_download(self):
         with tempfile.TemporaryDirectory() as tmp:
