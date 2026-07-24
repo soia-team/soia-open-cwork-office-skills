@@ -566,8 +566,38 @@ async def wait_visible_text(page: Any, text: str, timeout_ms: int) -> Any:
     return locator
 
 
+async def scroll_processon_file_list(page: Any) -> None:
+    """Aim wheel input at ProcessOn's virtualized file-list container.
+
+    Some deep folders render their rows inside an internal ``file_list``
+    scroller while ``window.scrollY`` remains unchanged.  Hovering the fixed
+    provider container first preserves the existing page-wheel fallback and
+    lets the virtual list materialize rows that are below the viewport.
+    """
+
+    try:
+        container = page.locator("div.file_list, ul.file_list, .file_list").filter(
+            visible=True
+        ).nth(0)
+        if not await container.count():
+            # The list wrapper is not stable across ProcessOn views, but a
+            # visible row is.  Hovering the row still routes wheel input to
+            # its nearest scrollable ancestor.
+            container = page.locator("div.file_list_item").filter(visible=True).nth(0)
+        if await container.count():
+            await container.hover(timeout=500)
+    except Exception:
+        # The page-wheel fallback below remains valid for non-virtual layouts
+        # and for provider markup changes where the fixed container is absent.
+        pass
+    await page.mouse.move(720, 850)
+    await page.mouse.wheel(0, 900)
+
+
 async def wait_folder_row(page: Any, text: str, timeout_ms: int) -> Any:
     deadline = time.monotonic() + timeout_ms / 1000
+    previous_marker: tuple[int, str] | None = None
+    unchanged = 0
     while time.monotonic() < deadline:
         candidates = page.get_by_text(text, exact=True).filter(visible=True)
         count = await candidates.count()
@@ -583,8 +613,64 @@ async def wait_folder_row(page: Any, text: str, timeout_ms: int) -> Any:
             return matches[0]
         if len(matches) > 1:
             raise BatchError(f"folder row is ambiguous: {text!r}")
+        marker = (
+            int(await page.evaluate("() => Math.round(window.scrollY || 0)")),
+            (await page.locator("body").inner_text())[-500:],
+        )
+        unchanged = unchanged + 1 if marker == previous_marker else 0
+        previous_marker = marker
+        if unchanged >= 2:
+            break
+        await scroll_processon_file_list(page)
         await page.wait_for_timeout(300)
     raise BatchError(f"folder row did not become visible: {text!r}")
+
+
+async def wait_folder_path_row(
+    page: Any, segments: list[str], start: int, timeout_ms: int
+) -> tuple[Any, int]:
+    """Find a folder using the longest slash-containing name first.
+
+    ProcessOn permits `/` in a folder name, while the inventory path uses `/`
+    as its logical separator.  Trying the longest joined candidate preserves
+    the actual folder boundary without weakening exact row matching.
+    """
+
+    candidates_by_length: list[tuple[str, int]] = []
+    for end in range(len(segments), start, -1):
+        name = "/".join(segments[start:end])
+        if name and (name, end) not in candidates_by_length:
+            candidates_by_length.append((name, end))
+    deadline = time.monotonic() + timeout_ms / 1000
+    previous_marker: tuple[int, str] | None = None
+    unchanged = 0
+    while time.monotonic() < deadline:
+        for name, end in candidates_by_length:
+            candidates = page.get_by_text(name, exact=True).filter(visible=True)
+            count = await candidates.count()
+            matches: list[Any] = []
+            for index in range(count):
+                candidate = candidates.nth(index)
+                row = candidate.locator(
+                    "xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' file_list_item ')][1]"
+                )
+                if await row.count():
+                    matches.append(candidate)
+            if len(matches) == 1:
+                return matches[0], end
+            if len(matches) > 1:
+                raise BatchError(f"folder row is ambiguous: {name!r}")
+        marker = (
+            int(await page.evaluate("() => Math.round(window.scrollY || 0)")),
+            (await page.locator("body").inner_text())[-500:],
+        )
+        unchanged = unchanged + 1 if marker == previous_marker else 0
+        previous_marker = marker
+        if unchanged >= 2:
+            break
+        await scroll_processon_file_list(page)
+        await page.wait_for_timeout(300)
+    raise BatchError(f"folder row did not become visible: {segments[start]!r}")
 
 
 async def reset_to_team_root(page: Any, root_label: str, timeout_ms: int) -> None:
@@ -653,10 +739,14 @@ async def navigate_directory(
             if not await async_target_accessible(page, team_url):
                 raise BatchError("dedicated ProcessOn profile is not logged in")
             await reset_to_team_root(page, root_label, min(timeout_ms, 20_000))
-            for segment in segments:
-                locator = await wait_folder_row(page, segment, min(timeout_ms, 20_000))
+            segment_index = 0
+            while segment_index < len(segments):
+                locator, next_index = await wait_folder_path_row(
+                    page, segments, segment_index, min(timeout_ms, 20_000)
+                )
                 await locator.click(click_count=2, timeout=timeout_ms)
                 await page.wait_for_timeout(1200)
+                segment_index = next_index
             return
         except Exception as exc:
             last_error = exc
@@ -698,8 +788,7 @@ async def find_title(page: Any, title: str, timeout_ms: int) -> Any:
         previous_marker = marker
         if unchanged >= 2:
             break
-        await page.mouse.move(720, 850)
-        await page.mouse.wheel(0, 900)
+        await scroll_processon_file_list(page)
         await page.wait_for_timeout(350)
     raise BatchError(f"title is not visible after bounded virtual-list scroll: {title}")
 
@@ -1375,9 +1464,12 @@ def source_title_matches(expected: str, observed: str) -> bool:
 
 
 def provider_safe_filename_stem(title: str) -> str:
-    """Mirror ProcessOn's observed path-separator sanitization, and nothing broader."""
+    """Mirror ProcessOn's observed filename sanitization, and nothing broader."""
 
-    return title.replace("/", "_").replace("\\", "_")
+    # ProcessOn also replaces the pipe character when it appears in titles.
+    # Keep this allow-list narrow: this is only a suggested-filename binding
+    # check, not a general fuzzy title comparison.
+    return title.replace("/", "_").replace("\\", "_").replace("|", "_")
 
 
 def normalized_processon_source_url(value: str) -> str:

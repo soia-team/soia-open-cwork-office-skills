@@ -1028,6 +1028,13 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
             MODULE.provider_safe_filename_stem(title), title.replace("中介", "中介平台")
         )
 
+    def test_provider_filename_sanitization_handles_observed_pipe_replacement(self):
+        title = "《5.登出流程（3.0||4.0令牌失效）》"
+        self.assertEqual(
+            MODULE.provider_safe_filename_stem(title),
+            "《5.登出流程（3.0__4.0令牌失效）》",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
