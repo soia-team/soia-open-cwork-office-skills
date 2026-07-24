@@ -114,6 +114,7 @@ class ProcessOnArchivePlanTests(unittest.TestCase):
             plan_result = self.module.verify_plan(plan_path, checkpoint_path)
             self.assertEqual(plan_result["status"], "failed")
             self.assertFalse(plan_result["entry_content_match"])
+            self.assertFalse(plan_result["entry_contract_match"])
 
             self.module.atomic_write_json(plan_path, plan)
             changed_checkpoint = checkpoint()
@@ -125,6 +126,25 @@ class ProcessOnArchivePlanTests(unittest.TestCase):
                 checkpoint_result["plan_checkpoint_sha256"],
                 checkpoint_result["current_checkpoint_sha256"],
             )
+
+    def test_verify_allows_selection_rule_hint_to_evolve(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            checkpoint_path = root / "checkpoint.json"
+            plan_path = root / "archive-plan.json"
+            checkpoint_path.write_text(json.dumps(checkpoint()), encoding="utf-8")
+            plan = self.module.build_plan(
+                checkpoint_path, self.module.load_object(checkpoint_path, "checkpoint")
+            )
+            plan["entries"][0]["selection_rule"] = "legacy menu preference"
+            self.module.atomic_write_json(plan_path, plan)
+
+            result = self.module.verify_plan(plan_path, checkpoint_path)
+
+        self.assertEqual(result["status"], "passed")
+        self.assertFalse(result["entry_content_match"])
+        self.assertTrue(result["entry_contract_match"])
+        self.assertEqual(result["execution_hint_drift_fields"], ["selection_rule"])
 
     def test_plan_rejects_unsafe_inventory_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
