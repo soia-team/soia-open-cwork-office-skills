@@ -1,9 +1,9 @@
 ---
 name: soia-cwork-processon-diagrams
 description: 安全盘点并按授权导出、校验和归档 ProcessOn 图表。触发：ProcessOn 盘点、导出架构图、批量下载图表
-version: 1.10.15
+version: 1.11.0
 created_at: 2026-07-20 18:57:53
-updated_at: 2026-07-24 12:30:00
+updated_at: 2026-07-27 17:03:07
 created_by: gpt-5.6-sol
 updated_by: gpt-5.6-sol
 dependencies:
@@ -25,6 +25,7 @@ dependencies:
 | 导出图表 | 按客户授权选择 VSDX、POS、PNG、SVG、PDF、XMind 或 Office 格式 | 下载文件、格式/大小/SHA-256 验收 |
 | 归档浏览器下载 | 解析 CLI、环境变量和私有 YAML 中的路径，让 Playwright 按 run/artifact 直写受管 staging；校验后在同一文件系统无复制归档 | staging/最终路径、transfer mode、SHA-256 和审计 manifest |
 | 批量续跑归档 | 从归档计划初始化下载队列，逐项领取、记录成功/失败/阻断并重放审计 | `download-progress.json`、下一批列表和机械验收结果 |
+| 收口异常尾单 | 对已失败/阻断项使用精确 artifact 白名单重试；对计划内同名项生成与计划 SHA 绑定的顺序确认；对未知类型只观察固定 provider 图标 | 定向批次回执、碰撞确认文件、未知类型观察清单；歧义和安全项不会被硬算成功 |
 | 受控并发归档 | 在一个技能专用 context 内固定复用 1–2 个 headless worker 页；下载可并发，归档和进度仍单写入 | 并发 proof、逐批 receipt、弹页/worker 关闭对账和进度镜像 |
 | 长任务续跑监督 | 顺序运行已证明的小批次；每批审计后才继续，宿主中断可从私有监督状态恢复 | `archive-supervisor-state.json`、逐批状态和停止原因 |
 | 不干扰地控制浏览器 | 从任意 AI/终端调用本地 Playwright runner，在技能专用 profile 中 headless 执行 | 独立登录态、页面关闭计数、下载回执；客户主 Chrome 不被接管 |
@@ -247,6 +248,43 @@ python3 scripts/processon_archive_batch.py \
   --workers 1 --limit 2 --dry-run
 ```
 
+已阻断条目只有在原阻断条件已经消失、且新的验证路径可复现时，才用 `--retry-blocked` 加精确 artifact 白名单重试。它与 `--retry-failed` 互斥，并拒绝 unknown、未确认项和 collision-risk 项；安全隔离和空画布不能仅靠重跑解除：
+
+```bash
+python3 scripts/processon_archive_batch.py \
+  --plan <run-dir>/artifacts/archive-plan.json \
+  --progress <run-dir>/artifacts/download-progress.json \
+  --team-url '<team-url>' --config <private-config.yml> \
+  --retry-blocked --artifact-id '<artifact-id>' \
+  --workers 1 --limit 1 --dry-run
+```
+
+归档计划已经标记同目录同标题碰撞时，先生成与当前计划 SHA-256 绑定的私有顺序确认，再以单 worker 专用批次执行。该确认只授权**计划中已经存在的碰撞组**，不能替代未知类型确认，也不能给盘点后新出现的同名搜索结果强行绑定：
+
+```bash
+python3 scripts/prepare_processon_collision_confirmation.py \
+  --plan <run-dir>/artifacts/archive-plan.json \
+  --progress <run-dir>/artifacts/download-progress.json \
+  --output <run-dir>/artifacts/collision-confirmation.json \
+  --confirm-inventory-order
+python3 scripts/processon_archive_batch.py \
+  --plan <run-dir>/artifacts/archive-plan.json \
+  --progress <run-dir>/artifacts/download-progress.json \
+  --team-url '<team-url>' --config <private-config.yml> \
+  --collision-confirmation <run-dir>/artifacts/collision-confirmation.json \
+  --workers 1 --limit 10 --dry-run
+```
+
+盘点计划中的 unknown 只能用固定 ProcessOn 文件行图标做只读观察；标题行不存在、同名不可唯一定位或 provider 图标不唯一时继续保留 unknown，和客户一起确认：
+
+```bash
+python3 scripts/inspect_processon_unknown_types.py \
+  --plan <run-dir>/artifacts/archive-plan.json \
+  --progress <run-dir>/artifacts/download-progress.json \
+  --team-url '<team-url>' \
+  --output <run-dir>/artifacts/unknown-type-observation.json
+```
+
 1. 先用 runner `snapshot` 取得当前目录可见文字和语义控件，再生成小批次 action JSON；根据快照定位目标的“下载/导出”，不依赖固定坐标或私有 CSS。点击文件标题后，兼容官方同页进入编辑器和新 popup 两种行为；在编辑器中按可见的“文件 → 导出为”导出，不再假定列表行菜单始终存在。ProcessOn 文件列表可能虚拟化；目标条目未进入当前视口时先用 `scroll` 并重新快照，不能把定位超时写成文件不存在。按已确认类型选择：
    - 流程图默认导出 `.vsdx`；runner 先选当前编辑器的 `导出全部画布 （.vsdx）`/旧标签 `导出全部画布 (.vsdx)` 保留全部画布，该项不可见时再兼容 `VISIO文件` / `VISIO文件 beta`；
    - 思维导图默认选 `Xmind文件`/`.xmind`；其官方编辑器的 `导出为` 是一级菜单，不要求也不尝试流程图的“文件”菜单。定位同时检查可见正文和 ProcessOn 已见的 `aria-label`、`title`、`data-title`、`data-tooltip`，但只接受技能内固定白名单的菜单名，不接受调用方 CSS；
@@ -376,6 +414,16 @@ python3 scripts/processon_archive_state.py audit \
 - VSDX 菜单使用有界的精确标签候选，优先全画布导出并兼容当前编辑器全角空格标签及单画布旧标签；标题点击可同页进入编辑器或打开 popup，实际命中的菜单标签写入 artifact metadata 与批次回执。
 - 每批生成不可变 JSON receipt，并对 worker 页、popup 与 context 的关闭数做机械对账；历史进度里直接来自 `~/Downloads` 的所有平铺文件都会进入复核清单，不能因未带 `(n)` 或旧状态写成 completed 就省略来源复核。
 
+`scripts/prepare_processon_collision_confirmation.py`：
+
+- 从当前计划与进度生成 plan-bound、inventory-order 的私有碰撞确认，并用批处理的同一严格 loader 回放验证。
+- 只包含尚未完成、类型已知、且计划明确标为 collision-risk 的条目；拒绝 unknown、非碰撞项、计划漂移和无显式确认开关。
+
+`scripts/inspect_processon_unknown_types.py`：
+
+- 在技能专用 profile 中逐项只读观察 ProcessOn 固定文件行图标，输出 plan-bound 的 unknown 类型证据。
+- 固定图标不能唯一证明类型、标题行无法唯一定位或目录漂移时记录错误并保持 unknown，不修改计划和进度。
+
 `scripts/processon_archive_supervisor.py`：
 
 - 只顺序调用同一技能的 bounded batch runner；不使用 Codex/Claude computer-use，也不附着客户主 Chrome。
@@ -390,7 +438,7 @@ python3 scripts/processon_archive_state.py audit \
 
 ## 验证
 
-- 静态：`python3 -m py_compile scripts/inspect_processon_export.py scripts/finalize_processon_download.py scripts/processon_inventory_state.py scripts/build_processon_archive_plan.py scripts/processon_archive_state.py scripts/diff_processon_inventory.py scripts/processon_browser_runner.py scripts/processon_archive_batch.py scripts/processon_archive_supervisor.py`
+- 静态：`python3 -m py_compile scripts/inspect_processon_export.py scripts/finalize_processon_download.py scripts/processon_inventory_state.py scripts/build_processon_archive_plan.py scripts/processon_archive_state.py scripts/diff_processon_inventory.py scripts/processon_browser_runner.py scripts/processon_archive_batch.py scripts/processon_archive_supervisor.py scripts/prepare_processon_collision_confirmation.py scripts/inspect_processon_unknown_types.py`
 - 单测：`python3 -m unittest tests.test_processon_downloads tests.test_processon_inventory_state tests.test_processon_archive_plan tests.test_processon_archive_state tests.test_processon_inventory_delta tests.test_processon_browser_runner tests.test_processon_archive_batch tests.test_processon_archive_supervisor -v`，覆盖配置优先级、安全默认路径、原子复制、同名改名、no-copy move/跨盘拒绝/失败回滚、reopen 隔离与重新领取、目录与资产中间状态、计划漂移拒绝、失败/阻断续跑、完整快照增量门禁，以及主 Chrome profile 拒绝、敏感 action 拒绝、并发 proof、collision 隔离、文件内标题信号、监督器的精确失败门禁和正常/异常页面关闭。
 - POS：用一份流程图和一份思维导图 POS 运行 `--format json`，确认标题、category、节点文字和元素数。
 - 图片：用 PNG/JPEG 运行脚本，确认宽高与 SHA-256。

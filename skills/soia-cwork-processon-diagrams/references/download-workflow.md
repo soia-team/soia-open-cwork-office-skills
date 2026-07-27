@@ -186,6 +186,12 @@ python3 scripts/processon_archive_supervisor.py \
 
 若已失败条目出现了新的、可复现的路线（例如编辑器菜单结构已被单文件只读快照确认），批处理仍不得扫回全部失败项。必须先 dry-run，再以 `--retry-failed` 和重复的精确 `--artifact-id` 白名单启动；脚本拒绝空白名单、重复 ID、非计划 ID、非 `failed` 状态、`blocked` 或 collision-risk 项。成功时由 `record` 原子替换该条失败状态；失败则保留新的不可变 batch receipt，随后再由状态脚本按证据更新原因。
 
+已阻断条目只在原阻断条件已经消失且新验证路线可复现时使用 `--retry-blocked`；仍须逐个提供 `--artifact-id`，且与 `--retry-failed` 互斥。安全隔离、空画布、unknown 和 collision-risk 不会因普通重跑自动放行。宿主异常发生在 `download.save_as()` 之后时，可用 `--recover-existing-only` 只恢复带有效 staging receipt 的文件；该模式不访问 ProcessOn、不发起新下载，也不接受 `--dry-run`。
+
+计划内同名碰撞使用 `prepare_processon_collision_confirmation.py --confirm-inventory-order` 生成与当前 plan SHA-256 绑定的私有确认文件，再以 `--collision-confirmation`、`--workers 1` 专用批次执行。确认 loader 会复核目录、标题、type、owner、remote update、计划顺序和组大小。它不能授权计划外的新同名项，也不能把 live search 中仍有多个候选的普通条目强行映射到旧 artifact。
+
+计划中的 unknown 使用 `inspect_processon_unknown_types.py` 观察技能内固定的 ProcessOn 文件行图标。观察结果只写入私有 state；同名行、目录漂移、无图标或同时出现多类图标时保持 unknown，由客户和 Agent 一起确认，不能自动修改计划或进度。
+
 覆盖属于高影响动作，必须由客户在当前请求中明确授权并同时传入：
 
 ```bash
