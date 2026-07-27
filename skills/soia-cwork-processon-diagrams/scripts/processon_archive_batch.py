@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote_plus, urlparse
 from xml.etree import ElementTree
 
 from processon_browser_runner import (
@@ -39,6 +39,7 @@ from processon_browser_runner import (
     validate_profile_dir,
 )
 from finalize_processon_download import DownloadError, ensure_paths, load_settings
+from inspect_processon_export import inspect_pos
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -79,8 +80,13 @@ VSDX_DOWNLOAD_MENU_CANDIDATES = (
     "VISIO文件",
     "VISIO文件 beta",
 )
+POS_DOWNLOAD_MENU_CANDIDATES = ("POS文件",)
 EDITOR_FILE_MENU = "文件"
 EDITOR_EXPORT_MENU = "导出为"
+TEAM_SEARCH_INPUT_SELECTORS = (
+    "input[placeholder*='搜索文件']",
+    "input[placeholder*='文件/文件夹']",
+)
 SEMANTIC_CONTROL_SELECTORS = {
     "文件": (
         "[aria-label='文件']",
@@ -123,6 +129,12 @@ SEMANTIC_CONTROL_SELECTORS = {
         "[title='Xmind文件']",
         "[data-title='Xmind文件']",
         "[data-tooltip='Xmind文件']",
+    ),
+    "POS文件": (
+        "[aria-label='POS文件']",
+        "[title='POS文件']",
+        "[data-title='POS文件']",
+        "[data-tooltip='POS文件']",
     ),
 }
 
@@ -427,7 +439,9 @@ def choose_entries(
     *,
     workers: int,
     retry_failed: bool = False,
+    retry_blocked: bool = False,
     artifact_ids: list[str] | None = None,
+    collision_confirmations: OrderedDict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Choose normal pending work or a caller-whitelisted failed retry.
 
@@ -438,10 +452,43 @@ def choose_entries(
     """
 
     requested_ids = [str(item).strip() for item in artifact_ids or []]
-    if requested_ids and not retry_failed:
-        raise BatchError("--artifact-id requires --retry-failed")
+    confirmed_collisions = collision_confirmations or OrderedDict()
+    if confirmed_collisions:
+        if workers != 1:
+            raise BatchError("collision confirmation requires --workers 1")
+        if retry_failed or retry_blocked or requested_ids:
+            raise BatchError(
+                "collision confirmation is a dedicated flow and cannot be combined with failed retry"
+            )
+        # A current explicit collision confirmation may retry a formerly
+        # blocked/failed item after the provider capability changed.  Never
+        # redownload an already completed artifact.
+        done = {
+            str(item.get("artifact_id", ""))
+            for item in progress.get("completed", [])
+        }
+        selected: list[dict[str, Any]] = []
+        for artifact_id, confirmation in confirmed_collisions.items():
+            if artifact_id in done:
+                continue
+            entry = dict(confirmation["entry"])
+            entry["_collision_occurrence"] = int(confirmation["occurrence"])
+            entry["_collision_group_size"] = int(confirmation["group_size"])
+            entry["_collision_plan_group_size"] = int(confirmation["plan_group_size"])
+            entry["_collision_confirmation_method"] = "inventory_order"
+            entry["_collision_selection_scope"] = str(confirmation["selection_scope"])
+            selected.append(entry)
+            if len(selected) >= limit:
+                break
+        return selected
+    if retry_failed and retry_blocked:
+        raise BatchError("--retry-failed and --retry-blocked are mutually exclusive")
+    if requested_ids and not (retry_failed or retry_blocked):
+        raise BatchError("--artifact-id requires --retry-failed or --retry-blocked")
     if retry_failed and not requested_ids:
         raise BatchError("--retry-failed requires one or more --artifact-id values")
+    if retry_blocked and not requested_ids:
+        raise BatchError("--retry-blocked requires one or more --artifact-id values")
     if len(set(requested_ids)) != len(requested_ids):
         raise BatchError("--artifact-id values must be unique")
 
@@ -472,9 +519,29 @@ def choose_entries(
                 raise BatchError(
                     f"--retry-failed cannot name a collision-risk artifact: {artifact_id}"
                 )
+    if retry_blocked:
+        retryable_ids = {
+            str(item.get("artifact_id", "")) for item in progress.get("blocked", [])
+        }
+        not_blocked_ids = requested_set - retryable_ids
+        if not_blocked_ids:
+            raise BatchError(
+                "--retry-blocked may only name artifacts currently in progress.blocked: "
+                f"{sorted(not_blocked_ids)[0]}"
+            )
+        for artifact_id in requested_ids:
+            entry = plan_by_id[artifact_id]
+            if entry.get("confirmation_required") or entry.get("type") == "unknown":
+                raise BatchError(
+                    f"--retry-blocked cannot name an unconfirmed artifact: {artifact_id}"
+                )
+            if entry.get("collision_risk") not in {None, "", "none_detected"}:
+                raise BatchError(
+                    f"--retry-blocked cannot name a collision-risk artifact: {artifact_id}"
+                )
 
     done = progress_done_ids(progress)
-    if retry_failed:
+    if retry_failed or retry_blocked:
         done -= requested_set
     selected: list[dict[str, Any]] = []
     for entry in plan["entries"]:
@@ -494,17 +561,129 @@ def choose_entries(
 
 
 def deferred_collision_entries(
-    plan: dict[str, Any], progress: dict[str, Any]
+    plan: dict[str, Any],
+    progress: dict[str, Any],
+    *,
+    confirmed_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     done = progress_done_ids(progress)
+    authorized = confirmed_ids or set()
     return [
         entry
         for entry in plan["entries"]
         if str(entry.get("artifact_id", "")) not in done
+        and str(entry.get("artifact_id", "")) not in authorized
         and not entry.get("confirmation_required")
         and entry.get("type") != "unknown"
         and entry.get("collision_risk") not in {None, "", "none_detected"}
     ]
+
+
+def load_collision_confirmation(
+    path: Path | None,
+    *,
+    plan_path: Path,
+    plan: dict[str, Any],
+    progress: dict[str, Any],
+) -> OrderedDict[str, dict[str, Any]]:
+    """Load a fail-closed, plan-bound confirmation for duplicate-title rows."""
+
+    if path is None:
+        return OrderedDict()
+    confirmation_path = path.expanduser().resolve(strict=False)
+    if confirmation_path.is_symlink() or not confirmation_path.is_file():
+        raise BatchError(
+            f"collision confirmation must be a regular file: {confirmation_path}"
+        )
+    payload = load_json(confirmation_path)
+    expected_sha = str(progress.get("plan", {}).get("sha256") or "")
+    actual_sha = sha256(plan_path.expanduser().resolve(strict=True))
+    if not expected_sha or actual_sha != expected_sha:
+        raise BatchError("current archive plan SHA-256 differs from progress")
+    if (
+        payload.get("schema_version") != 1
+        or payload.get("kind") != "processon_collision_confirmation"
+        or payload.get("confirmation_method") != "inventory_order"
+        or str(payload.get("plan_sha256") or "") != expected_sha
+    ):
+        raise BatchError("collision confirmation is not bound to the current plan")
+    raw_entries = payload.get("entries")
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise BatchError("collision confirmation must contain at least one entry")
+
+    plan_by_id = {
+        str(entry.get("artifact_id", "")): entry
+        for entry in plan["entries"]
+        if entry.get("artifact_id")
+    }
+    groups: OrderedDict[tuple[str, str], list[dict[str, Any]]] = OrderedDict()
+    for entry in plan["entries"]:
+        if entry.get("collision_risk") in {None, "", "none_detected"}:
+            continue
+        key = (str(entry.get("source_directory", "")), str(entry.get("title", "")))
+        groups.setdefault(key, []).append(entry)
+
+    confirmed: OrderedDict[str, dict[str, Any]] = OrderedDict()
+    plan_indexes = {
+        str(entry.get("artifact_id", "")): index
+        for index, entry in enumerate(plan["entries"])
+    }
+    previous_plan_index = -1
+    for item in raw_entries:
+        if not isinstance(item, dict):
+            raise BatchError("collision confirmation entries must be objects")
+        artifact_id = str(item.get("artifact_id") or "")
+        if not artifact_id or artifact_id in confirmed:
+            raise BatchError("collision confirmation artifact ids must be non-empty and unique")
+        entry = plan_by_id.get(artifact_id)
+        if entry is None:
+            raise BatchError(f"collision confirmation artifact is not in the plan: {artifact_id}")
+        if entry.get("confirmation_required") or entry.get("type") == "unknown":
+            raise BatchError(f"collision confirmation cannot authorize an unknown artifact: {artifact_id}")
+        if entry.get("collision_risk") in {None, "", "none_detected"}:
+            raise BatchError(f"collision confirmation named a non-collision artifact: {artifact_id}")
+        source_directory = str(entry.get("source_directory", ""))
+        title = str(entry.get("title", ""))
+        group = groups[(source_directory, title)]
+        expected_occurrence = next(
+            index
+            for index, candidate in enumerate(group)
+            if str(candidate.get("artifact_id", "")) == artifact_id
+        )
+        if (
+            str(item.get("source_directory", "")) != source_directory
+            or str(item.get("title", "")) != title
+            or item.get("occurrence") != expected_occurrence
+            or item.get("group_size") != len(group)
+        ):
+            raise BatchError(
+                f"collision confirmation order or group metadata differs from the plan: {artifact_id}"
+            )
+        current_plan_index = plan_indexes[artifact_id]
+        if current_plan_index <= previous_plan_index:
+            raise BatchError("collision confirmation entries must follow archive plan order")
+        previous_plan_index = current_plan_index
+        selection_group = [
+            candidate
+            for candidate in group
+            if all(
+                str(candidate.get(key, "")) == str(entry.get(key, ""))
+                for key in ("type", "owner", "remote_updated_at")
+            )
+        ]
+        selection_occurrence = next(
+            index
+            for index, candidate in enumerate(selection_group)
+            if str(candidate.get("artifact_id", "")) == artifact_id
+        )
+        confirmed[artifact_id] = {
+            "entry": entry,
+            "occurrence": selection_occurrence,
+            "group_size": len(selection_group),
+            "plan_group_size": len(group),
+            "selection_scope": "type_owner_remote_updated_at",
+        }
+    return confirmed
 
 
 def legacy_flat_download_review(progress: dict[str, Any]) -> dict[str, Any]:
@@ -758,26 +937,149 @@ async def navigate_directory(
     )
 
 
-async def find_title(page: Any, title: str, timeout_ms: int) -> Any:
+async def prepare_exact_team_search(
+    page: Any,
+    *,
+    team_url: str,
+    entry: dict[str, Any],
+    settle_ms: int,
+    timeout_ms: int,
+) -> str:
+    """Use only the provider's team search with the exact planned title.
+
+    This fallback is intentionally limited to a non-sensitive plan title and
+    runs only after the audited source path no longer resolves.  The normal
+    row/type/owner/update and editor-title checks still run before download.
+    """
+
+    await page.goto(team_url, wait_until="domcontentloaded", timeout=timeout_ms)
+    await page.wait_for_timeout(max(settle_ms, 1_000))
+    if not await async_target_accessible(page, team_url):
+        raise BatchError("dedicated ProcessOn profile is not logged in")
+    search = None
+    for selector in TEAM_SEARCH_INPUT_SELECTORS:
+        candidate = page.locator(selector).filter(visible=True).nth(0)
+        if await candidate.count() and await candidate.is_visible():
+            search = candidate
+            break
+    if search is None:
+        raise BatchError("ProcessOn team search input is not visible")
+    title = str(entry["title"])
+    await search.fill(title, timeout=timeout_ms)
+    await search.press("Enter", timeout=timeout_ms)
+    await page.wait_for_timeout(1_500)
+    try:
+        await find_title(
+            page,
+            title,
+            timeout_ms,
+            document_type=str(entry.get("type", "")),
+            owner=str(entry.get("owner", "")),
+            remote_updated_at=str(entry.get("remote_updated_at", "")),
+            allow_unique_owner_type_update_drift=True,
+        )
+        return "exact_team_search_with_inventory_metadata"
+    except BatchError:
+        # The provider may have changed owner/relative-update metadata after
+        # the old inventory.  Fall back only when the exact title and fixed
+        # document type identify one row across the whole team search.
+        await find_title(
+            page,
+            title,
+            timeout_ms,
+            document_type=str(entry.get("type", "")),
+        )
+        return "exact_team_search_unique_title_and_type"
+
+
+def relative_update_matches(expected: str, observed: str) -> bool:
+    """Allow only the narrow month-boundary drift seen in relative UI labels."""
+
+    if expected == observed:
+        return True
+    expected_match = re.fullmatch(r"(\d+)月前", expected)
+    observed_match = re.fullmatch(r"(\d+)月前", observed)
+    return bool(
+        expected_match
+        and observed_match
+        and abs(int(expected_match.group(1)) - int(observed_match.group(1))) <= 1
+    )
+
+
+async def find_title(
+    page: Any,
+    title: str,
+    timeout_ms: int,
+    *,
+    occurrence: int = 0,
+    expected_matches: int = 1,
+    document_type: str = "",
+    owner: str = "",
+    remote_updated_at: str = "",
+    allow_additional_matches: bool = False,
+    allow_unique_owner_type_update_drift: bool = False,
+) -> Any:
+    if occurrence < 0 or expected_matches < 1 or occurrence >= expected_matches:
+        raise BatchError("invalid confirmed collision occurrence")
     deadline = time.monotonic() + timeout_ms / 1000
     previous_marker: tuple[int, str, tuple[str, ...]] | None = None
     unchanged = 0
     while time.monotonic() < deadline:
+        relaxed_update_matches: list[Any] = []
         try:
-            # A folder title is also present in the breadcrumb.  Only accept a
-            # title that belongs to a concrete ProcessOn list row; otherwise a
-            # same-named folder can be clicked instead of the requested file.
-            candidates = page.get_by_text(title, exact=True).filter(visible=True)
-            candidate_count = min(await candidates.count(), 32)
-            for index in range(candidate_count):
-                locator = candidates.nth(index)
-                if not await locator.is_visible():
+            # Count concrete rows, not matching text nodes.  ProcessOn may
+            # render the same visible title twice inside one row (for example
+            # a label plus a tooltip clone); treating both nodes as files makes
+            # a confirmed group of N rows look like more than N artifacts.
+            visible_rows = page.locator("div.file_list_item").filter(visible=True)
+            row_count = min(await visible_rows.count(), 512)
+            matches: list[Any] = []
+            for index in range(row_count):
+                row = visible_rows.nth(index)
+                if not await row.is_visible():
                     continue
-                row = locator.locator(
-                    "xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' file_list_item ')][1]"
+                title_nodes = row.get_by_text(title, exact=True).filter(visible=True)
+                if not await title_nodes.count():
+                    continue
+                if document_type == "flowchart":
+                    if not await row.locator(".icon-a-444_huaban1").count():
+                        continue
+                elif document_type == "mindmap":
+                    if not await row.locator(".icon-a-siweidaotu1_huaban1").count():
+                        continue
+                elif document_type:
+                    raise BatchError(
+                        f"unsupported confirmed collision document type: {document_type}"
+                    )
+                if owner or remote_updated_at:
+                    visible_lines = {
+                        line.strip()
+                        for line in (await row.inner_text()).splitlines()
+                        if line.strip()
+                    }
+                    if owner and owner not in visible_lines:
+                        continue
+                    if remote_updated_at:
+                        relaxed_update_matches.append(title_nodes.nth(0))
+                        observed_updates = [
+                            line.removeprefix("更新于")
+                            for line in visible_lines
+                            if line.startswith("更新于")
+                        ]
+                        if not any(
+                            relative_update_matches(remote_updated_at, observed)
+                            for observed in observed_updates
+                        ):
+                            continue
+                matches.append(title_nodes.nth(0))
+            if len(matches) > expected_matches and not allow_additional_matches:
+                raise BatchError(
+                    f"visible duplicate-title row count exceeds confirmation: {title!r}"
                 )
-                if await row.count() and await row.is_visible():
-                    return locator
+            if len(matches) >= expected_matches:
+                return matches[occurrence]
+        except BatchError:
+            raise
         except Exception:
             pass
         visible_rows = page.locator("div.file_list_item").filter(visible=True)
@@ -797,9 +1099,22 @@ async def find_title(page: Any, title: str, timeout_ms: int) -> Any:
         # tail remain unchanged.  Require several unchanged row snapshots
         # before giving up, but keep the overall timeout bounded.
         if unchanged >= 4:
+            if (
+                allow_unique_owner_type_update_drift
+                and owner
+                and document_type in {"flowchart", "mindmap"}
+                and expected_matches == 1
+                and len(relaxed_update_matches) == 1
+            ):
+                return relaxed_update_matches[0]
             break
         await scroll_processon_file_list(page)
         await page.wait_for_timeout(350)
+    if expected_matches > 1:
+        raise BatchError(
+            "confirmed duplicate-title rows were not simultaneously visible after bounded "
+            f"virtual-list scroll: {title!r}; expected {expected_matches}"
+        )
     raise BatchError(f"title is not visible after bounded virtual-list scroll: {title}")
 
 
@@ -858,10 +1173,17 @@ def write_staging_receipt(progress_path: Path, result: dict[str, Any]) -> Path:
         "source_path": str(result["source_path"]),
         "title": str(result["title"]),
         "requested_format": str(result["requested_format"]),
+        "actual_format": str(result.get("actual_format", result["requested_format"])),
+        "fallback_used": bool(result.get("fallback_used", False)),
+        "fallback_reason": str(result.get("fallback_reason", "")),
         "source_url": str(result["source_url"]),
         "source_title": str(result["source_title"]),
         "remote_id": str(result["remote_id"]),
         "download_menu": str(result.get("download_menu", "")),
+        "source_lookup_method": str(
+            result.get("source_lookup_method", "planned_directory")
+        ),
+        "collision_binding": result.get("collision_binding"),
         "download": {
             "path": str(download["path"]),
             "bytes": int(download.get("bytes", 0)),
@@ -916,6 +1238,15 @@ def load_staging_result(
     observed_remote_id = verify_source_identity(entry, source_url)
     if observed_remote_id != remote_id:
         raise BatchError(f"staging receipt remote id differs from source URL: {receipt_path}")
+    expected_collision = None
+    if "_collision_occurrence" in entry:
+        expected_collision = {
+            "confirmation_method": str(entry["_collision_confirmation_method"]),
+            "occurrence": int(entry["_collision_occurrence"]),
+            "group_size": int(entry["_collision_group_size"]),
+        }
+    if payload.get("collision_binding") != expected_collision:
+        raise BatchError(f"staging receipt collision binding differs from the plan: {receipt_path}")
     download = payload.get("download")
     if not isinstance(download, dict):
         raise BatchError(f"staging receipt has no download object: {receipt_path}")
@@ -928,15 +1259,23 @@ def load_staging_result(
     suggested = str(download.get("suggested_filename", ""))
     if Path(suggested).name != source.name:
         raise BatchError(f"staging receipt filename differs from staged file: {receipt_path}")
-    return {
+    result = {
         "artifact_id": artifact_id,
         "source_path": str(entry["source_path"]),
         "title": str(entry["title"]),
         "requested_format": str(entry["primary_format"]),
+        "actual_format": str(
+            payload.get("actual_format") or Path(suggested).suffix.lower().lstrip(".")
+        ),
+        "fallback_used": bool(payload.get("fallback_used", False)),
+        "fallback_reason": str(payload.get("fallback_reason", "")),
         "source_url": source_url,
         "source_title": source_title,
         "remote_id": remote_id,
         "download_menu": str(payload.get("download_menu", "")),
+        "source_lookup_method": str(
+            payload.get("source_lookup_method", "planned_directory")
+        ),
         "download": {
             "path": str(source),
             "bytes": source.stat().st_size,
@@ -944,6 +1283,45 @@ def load_staging_result(
         },
         "ok": True,
     }
+    if expected_collision is not None:
+        result["collision_binding"] = expected_collision
+    allowed_formats = {
+        str(entry.get("primary_format", "")).lower(),
+        *(str(item).lower() for item in entry.get("fallback_formats", [])),
+    }
+    if result["actual_format"] not in allowed_formats:
+        raise BatchError(
+            f"staging receipt actual format is not allowed by the plan: {receipt_path}"
+        )
+    if result["fallback_used"] != (
+        result["actual_format"] != str(entry.get("primary_format", "")).lower()
+    ):
+        raise BatchError(f"staging receipt fallback flag is inconsistent: {receipt_path}")
+    return result
+
+
+def collision_entry_authorized(entry: dict[str, Any], args: argparse.Namespace) -> bool:
+    if entry.get("collision_risk") in {None, "", "none_detected"}:
+        return True
+    confirmations = getattr(args, "collision_confirmations", OrderedDict())
+    return str(entry.get("artifact_id", "")) in confirmations
+
+
+def entry_with_collision_confirmation(
+    entry: dict[str, Any], args: argparse.Namespace
+) -> dict[str, Any]:
+    confirmation = getattr(args, "collision_confirmations", OrderedDict()).get(
+        str(entry.get("artifact_id", ""))
+    )
+    if confirmation is None:
+        return entry
+    decorated = dict(entry)
+    decorated["_collision_occurrence"] = int(confirmation["occurrence"])
+    decorated["_collision_group_size"] = int(confirmation["group_size"])
+    decorated["_collision_plan_group_size"] = int(confirmation["plan_group_size"])
+    decorated["_collision_confirmation_method"] = "inventory_order"
+    decorated["_collision_selection_scope"] = str(confirmation["selection_scope"])
+    return decorated
 
 
 def download_menu_candidates(entry: dict[str, Any]) -> list[str]:
@@ -956,6 +1334,10 @@ def download_menu_candidates(entry: dict[str, Any]) -> list[str]:
         raw_candidates = [*VSDX_DOWNLOAD_MENU_CANDIDATES, primary_menu]
     else:
         raw_candidates = [primary_menu]
+    if "pos" in {
+        str(item).strip().lower() for item in entry.get("fallback_formats", [])
+    }:
+        raw_candidates.extend(POS_DOWNLOAD_MENU_CANDIDATES)
     candidates: list[str] = []
     for label in raw_candidates:
         if label and label not in candidates:
@@ -965,6 +1347,31 @@ def download_menu_candidates(entry: dict[str, Any]) -> list[str]:
             f"archive entry has no download menu for format {primary_format or '<missing>'}"
         )
     return candidates
+
+
+def download_menu_format(entry: dict[str, Any], menu_label: str) -> tuple[str, bool, str]:
+    """Resolve the observed provider menu to an explicitly plan-authorized format."""
+
+    primary = str(entry.get("primary_format", "")).strip().lower()
+    if menu_label in POS_DOWNLOAD_MENU_CANDIDATES:
+        actual = "pos"
+        reason = "primary_export_menu_unavailable"
+    elif menu_label in VSDX_DOWNLOAD_MENU_CANDIDATES:
+        actual = "vsdx"
+        reason = ""
+    else:
+        actual = primary
+        reason = ""
+    allowed = {
+        primary,
+        *(str(item).strip().lower() for item in entry.get("fallback_formats", [])),
+    }
+    if actual not in allowed:
+        raise BatchError(
+            f"download menu {menu_label!r} resolves to format {actual!r}, which is not plan-authorized"
+        )
+    fallback_used = actual != primary
+    return actual, fallback_used, reason if fallback_used else ""
 
 
 def semantic_control_locators(page: Any, label: str) -> list[Any]:
@@ -1025,7 +1432,7 @@ def is_processon_editor_url(value: str) -> bool:
 
 
 async def open_source_editor(
-    page: Any, title: str, timeout_ms: int, receipt: BrowserReceipt
+    page: Any, entry: dict[str, Any], timeout_ms: int, receipt: BrowserReceipt
 ) -> tuple[Any, Any | None]:
     """Open one listed document, accepting an in-page editor or a popup.
 
@@ -1034,7 +1441,27 @@ async def open_source_editor(
     never cross-capture each other's transient pages.
     """
 
-    title_locator = await find_title(page, title, timeout_ms)
+    title = str(entry["title"])
+    title_locator = await find_title(
+        page,
+        title,
+        timeout_ms,
+        occurrence=int(entry.get("_collision_occurrence", 0)),
+        expected_matches=int(entry.get("_collision_group_size", 1)),
+        document_type=str(entry.get("type", "")),
+        owner=(
+            ""
+            if entry.get("_search_unique_title_type")
+            else str(entry.get("owner", ""))
+        ),
+        remote_updated_at=(
+            ""
+            if entry.get("_search_unique_title_type")
+            else str(entry.get("remote_updated_at", ""))
+        ),
+        allow_additional_matches="_collision_occurrence" in entry,
+        allow_unique_owner_type_update_drift=True,
+    )
     popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=timeout_ms))
     try:
         await title_locator.click(timeout=timeout_ms)
@@ -1188,6 +1615,86 @@ def inspection_requires_source_binding_block(inspection: dict[str, Any]) -> bool
     )
 
 
+def apply_confirmed_collision_binding(
+    inspection: dict[str, Any],
+    *,
+    browser_result: dict[str, Any],
+    entry: dict[str, Any],
+) -> dict[str, Any]:
+    """Promote only a manual inventory-order binding with an observed unique source id.
+
+    Duplicate placeholder titles such as ``未命名文件`` often do not occur in
+    diagram text.  The customer's explicit occurrence confirmation plus the
+    dedicated-browser editor URL is the source binding in that narrow case;
+    package structure and secret scanning still run first.
+    """
+
+    binding = browser_result.get("collision_binding")
+    if not isinstance(binding, dict):
+        return inspection
+    expected = {
+        "confirmation_method": "inventory_order",
+        "occurrence": int(entry.get("_collision_occurrence", -1)),
+        "group_size": int(entry.get("_collision_group_size", 0)),
+    }
+    plan_group_size = int(
+        entry.get("_collision_plan_group_size", expected["group_size"])
+    )
+    if binding != expected or plan_group_size < 2:
+        raise BatchError("browser collision binding differs from the confirmed plan order")
+    source_url = str(browser_result.get("source_url") or "")
+    remote_id = str(browser_result.get("remote_id") or "")
+    if not source_url or not remote_id or verify_source_identity(entry, source_url) != remote_id:
+        raise BatchError("confirmed collision result has no verified ProcessOn source identity")
+    if (
+        inspection.get("kind") == "visio-vsdx"
+        and inspection.get("semantic_status") == "source_binding_missing"
+    ):
+        promoted = dict(inspection)
+        promoted["content_semantic_status"] = "title_not_present"
+        promoted["semantic_status"] = "matched"
+        promoted["semantic_match_method"] = (
+            "confirmed_inventory_order_and_observed_remote_id"
+        )
+        promoted["collision_occurrence"] = expected["occurrence"]
+        promoted["collision_group_size"] = expected["group_size"]
+        return promoted
+    return inspection
+
+
+def apply_observed_source_binding(
+    inspection: dict[str, Any],
+    *,
+    browser_result: dict[str, Any],
+    entry: dict[str, Any],
+) -> dict[str, Any]:
+    """Promote a structurally valid export only with replayable source identity.
+
+    A duplicate-title entry still requires the explicit collision confirmation
+    handled above.  A plan entry whose inventory collision check was clean may
+    instead use the exact row selection plus the observed, unique ProcessOn
+    remote id.  Cross-artifact uniqueness is checked before recovery batches
+    call the finalizer.
+    """
+
+    promoted = apply_confirmed_collision_binding(
+        inspection, browser_result=browser_result, entry=entry
+    )
+    if not inspection_requires_source_binding_block(promoted):
+        return promoted
+    if entry.get("collision_risk") != "none_detected":
+        return promoted
+    source_url = str(browser_result.get("source_url") or "")
+    remote_id = str(browser_result.get("remote_id") or "")
+    if not source_url or not remote_id or verify_source_identity(entry, source_url) != remote_id:
+        raise BatchError("unique inventory result has no verified ProcessOn source identity")
+    result = dict(promoted)
+    result["content_semantic_status"] = "title_not_present"
+    result["semantic_status"] = "matched"
+    result["semantic_match_method"] = "unique_inventory_row_and_observed_remote_id"
+    return result
+
+
 def block_structurally_valid_unbound_vsdx(
     browser_result: dict[str, Any],
     entry: dict[str, Any],
@@ -1268,9 +1775,18 @@ async def download_one(
         "source_path": entry["source_path"],
         "title": title,
         "requested_format": entry["primary_format"],
+        "source_lookup_method": str(
+            entry.get("_source_lookup_method", "planned_directory")
+        ),
     }
     try:
-        source_page, popup = await open_source_editor(page, title, timeout_ms, receipt)
+        if "_collision_occurrence" in entry:
+            result["collision_binding"] = {
+                "confirmation_method": str(entry["_collision_confirmation_method"]),
+                "occurrence": int(entry["_collision_occurrence"]),
+                "group_size": int(entry["_collision_group_size"]),
+            }
+        source_page, popup = await open_source_editor(page, entry, timeout_ms, receipt)
         source_url = validate_processon_url(source_page.url)
         source_title = await wait_for_source_title(source_page, title, timeout_ms)
         remote_id = verify_source_identity(entry, source_url)
@@ -1280,16 +1796,20 @@ async def download_one(
 
         menu_label, menu = await open_editor_export_menu(source_page, entry, timeout_ms)
         result["download_menu"] = menu_label
+        actual_format, fallback_used, fallback_reason = download_menu_format(entry, menu_label)
+        result["actual_format"] = actual_format
+        result["fallback_used"] = fallback_used
+        result["fallback_reason"] = fallback_reason
         async with source_page.expect_download(timeout=max(timeout_ms, 60_000)) as download_info:
             await menu.click(timeout=timeout_ms)
         download = await download_info.value
         suggested = download.suggested_filename
-        expected_suffix = f".{entry['primary_format'].lower()}"
+        expected_suffix = f".{actual_format}"
         if Path(suggested).suffix.lower() != expected_suffix:
             raise BatchError(
                 f"download suffix mismatch for {title!r}: expected {expected_suffix}, got {suggested!r}"
             )
-        if Path(suggested).stem not in {title, provider_safe_filename_stem(title)}:
+        if not provider_suggested_filename_matches(title, suggested):
             raise BatchError(
                 f"download title mismatch for {title!r}: suggested filename is {suggested!r}"
             )
@@ -1348,24 +1868,77 @@ async def worker_loop(
                     # A title can navigate this same worker into the official
                     # editor. Rebuild the approved directory view before each
                     # artifact instead of relying on history/back semantics.
-                    await navigate_directory(
-                        page,
-                        team_url=team_url,
-                        root_path=str(plan["root_path"]),
-                        source_directory=directory,
-                        settle_ms=settle_ms,
-                        timeout_ms=timeout_ms,
-                    )
-                    results.append(
-                        await download_one(
+                    entry_for_download = entry
+                    try:
+                        await navigate_directory(
                             page,
-                            entry,
+                            team_url=team_url,
+                            root_path=str(plan["root_path"]),
+                            source_directory=directory,
+                            settle_ms=settle_ms,
+                            timeout_ms=timeout_ms,
+                        )
+                    except Exception as path_error:
+                        try:
+                            lookup_method = await prepare_exact_team_search(
+                                page,
+                                team_url=team_url,
+                                entry=entry,
+                                settle_ms=settle_ms,
+                                timeout_ms=timeout_ms,
+                            )
+                        except Exception as search_error:
+                            raise BatchError(
+                                "planned directory and exact team search both failed: "
+                                f"{type(path_error).__name__}: {path_error}; "
+                                f"{type(search_error).__name__}: {search_error}"
+                            ) from search_error
+                        entry_for_download = dict(entry)
+                        entry_for_download["_source_lookup_method"] = lookup_method
+                        entry_for_download["_search_unique_title_type"] = (
+                            lookup_method == "exact_team_search_unique_title_and_type"
+                        )
+                    download_result = await download_one(
+                        page,
+                        entry_for_download,
+                        download_dir=download_dir,
+                        progress_path=progress_path,
+                        timeout_ms=timeout_ms,
+                        receipt=receipt,
+                    )
+                    title_lookup_errors = (
+                        "title is not visible",
+                        "duplicate-title row count exceeds confirmation",
+                    )
+                    if (
+                        not download_result.get("ok")
+                        and entry_for_download is entry
+                        and any(
+                            marker in str(download_result.get("error", ""))
+                            for marker in title_lookup_errors
+                        )
+                    ):
+                        lookup_method = await prepare_exact_team_search(
+                            page,
+                            team_url=team_url,
+                            entry=entry,
+                            settle_ms=settle_ms,
+                            timeout_ms=timeout_ms,
+                        )
+                        searched_entry = dict(entry)
+                        searched_entry["_source_lookup_method"] = lookup_method
+                        searched_entry["_search_unique_title_type"] = (
+                            lookup_method == "exact_team_search_unique_title_and_type"
+                        )
+                        download_result = await download_one(
+                            page,
+                            searched_entry,
                             download_dir=download_dir,
                             progress_path=progress_path,
                             timeout_ms=timeout_ms,
                             receipt=receipt,
                         )
-                    )
+                    results.append(download_result)
                 except Exception as exc:
                     results.append(
                         {
@@ -1480,6 +2053,13 @@ def provider_safe_filename_stem(title: str) -> str:
     # Keep this allow-list narrow: this is only a suggested-filename binding
     # check, not a general fuzzy title comparison.
     return title.replace("/", "_").replace("\\", "_").replace("|", "_")
+
+
+def provider_suggested_filename_matches(title: str, suggested_filename: str) -> bool:
+    """Match only ProcessOn's observed path sanitization and URL-style spacing."""
+
+    suggested_stem = unquote_plus(Path(suggested_filename).stem)
+    return suggested_stem in {title, provider_safe_filename_stem(title)}
 
 
 def normalized_processon_source_url(value: str) -> str:
@@ -1692,12 +2272,33 @@ def inspect_xmind(path: Path, title: str) -> dict[str, Any]:
     }
 
 
-def inspect_download(path: Path, entry: dict[str, Any]) -> dict[str, Any]:
-    actual = str(entry["primary_format"]).lower()
+def inspect_download(
+    path: Path, entry: dict[str, Any], actual_format: str | None = None
+) -> dict[str, Any]:
+    actual = str(actual_format or entry["primary_format"]).lower()
     if actual == "vsdx":
         inspection = inspect_vsdx(path, str(entry["title"]))
     elif actual == "xmind":
         inspection = inspect_xmind(path, str(entry["title"]))
+    elif actual == "pos":
+        inspection = inspect_pos(path, text_limit=500)
+        observed_title = str(inspection.get("title") or "")
+        if observed_title != str(entry["title"]):
+            raise BatchError(
+                f"POS title mismatch: expected {entry['title']!r}, got {observed_title!r}"
+            )
+        findings = sensitive_text_findings(
+            [str(item) for item in inspection.pop("text", [])]
+        )
+        if findings:
+            summary = ", ".join(
+                f"{finding['type']}={finding['count']}" for finding in findings
+            )
+            raise BatchError(
+                "POS contains potential plaintext credential assignments; "
+                f"security review required ({summary})"
+            )
+        inspection["semantic_status"] = "matched"
     else:
         raise BatchError(f"parallel batch does not support primary format: {actual}")
     inspection.update({"bytes": path.stat().st_size, "sha256": sha256(path)})
@@ -1731,6 +2332,7 @@ def write_metadata(
         f"artifact_id: {yaml_string(entry['artifact_id'])}",
         'source: "processon"',
         f"source_path: {yaml_string(entry['source_path'])}",
+        f"source_lookup_method: {yaml_string(browser_result.get('source_lookup_method', 'planned_directory'))}",
         f"source_url: {yaml_string(browser_result['source_url'])}",
         'source_url_status: "verified_from_dedicated_browser_popup"',
         f"remote_id: {yaml_string(browser_result['remote_id'])}",
@@ -1743,15 +2345,23 @@ def write_metadata(
         f"exported_at: {yaml_string(now)}",
         f"archived_at: {yaml_string(now)}",
         f"requested_format: {yaml_string(entry['primary_format'])}",
-        f"actual_format: {yaml_string(entry['primary_format'])}",
+        f"actual_format: {yaml_string(browser_result.get('actual_format', entry['primary_format']))}",
         f"download_menu: {yaml_string(browser_result.get('download_menu', ''))}",
-        "fallback_used: false",
+        f"fallback_used: {str(bool(browser_result.get('fallback_used', False))).lower()}",
+        f"fallback_reason: {yaml_string(browser_result.get('fallback_reason', ''))}",
         f"file: {yaml_string(Path(finalized['destination']).name)}",
         f"bytes: {int(inspection['bytes'])}",
         f"sha256: {yaml_string(inspection['sha256'])}",
         f"finalizer_manifest: {yaml_string(finalized['manifest'])}",
         "inspection:",
     ]
+    collision_binding = browser_result.get("collision_binding")
+    if isinstance(collision_binding, dict):
+        lines[lines.index("inspection:"):lines.index("inspection:")] = [
+            'collision_confirmation_method: "inventory_order"',
+            f"collision_occurrence: {int(collision_binding['occurrence'])}",
+            f"collision_group_size: {int(collision_binding['group_size'])}",
+        ]
     for key, value in inspection.items():
         if key in {"bytes", "sha256"}:
             continue
@@ -1803,7 +2413,7 @@ def reconcile_existing(
             not artifact_id
             or artifact_id in done
             or entry.get("confirmation_required")
-            or entry.get("collision_risk") not in {None, "", "none_detected"}
+            or not collision_entry_authorized(entry, args)
         ):
             continue
         folder = output_folder(args.output_root, entry)
@@ -1878,6 +2488,25 @@ def append_source_link(path: Path, entry: dict[str, Any], browser_result: dict[s
         raise BatchError(f"source-links path must not be a symlink: {path}")
     text = path.read_text(encoding="utf-8")
     artifact_id = str(entry["artifact_id"])
+    observed_url = normalized_processon_source_url(str(browser_result["source_url"]))
+    for match in re.finditer(
+        r'(?ms)^  - artifact_id: "(?P<artifact>[^"]+)"\n(?P<body>.*?)(?=^  - artifact_id:|\Z)',
+        text,
+    ):
+        url_match = re.search(
+            r'^    source_url: "([^"]*)"$', match.group("body"), re.MULTILINE
+        )
+        if not url_match or match.group("artifact") == artifact_id:
+            continue
+        try:
+            existing_normalized = normalized_processon_source_url(url_match.group(1))
+        except BrowserRunnerError:
+            continue
+        if existing_normalized == observed_url:
+            raise BatchError(
+                "source-links already binds this ProcessOn URL to another artifact: "
+                f"{match.group('artifact')}"
+            )
     if f'artifact_id: "{artifact_id}"' in text:
         pattern = re.compile(
             rf'(?ms)^  - artifact_id: "{re.escape(artifact_id)}"\n(?P<body>.*?)(?=^  - artifact_id:|\Z)'
@@ -2034,7 +2663,14 @@ def finalize_result(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     source = Path(browser_result["download"]["path"])
-    inspection = inspect_download(source, entry)
+    actual_format = str(
+        browser_result.get("actual_format", entry["primary_format"])
+    ).lower()
+    inspection = apply_observed_source_binding(
+        inspect_download(source, entry, actual_format),
+        browser_result=browser_result,
+        entry=entry,
+    )
     destination_dir = output_folder(args.output_root, entry)
     base_command = [
         sys.executable,
@@ -2091,7 +2727,7 @@ def finalize_result(
             "--requested-format",
             str(entry["primary_format"]),
             "--actual-format",
-            str(entry["primary_format"]),
+            actual_format,
             "--download-event",
             "observed",
         ]
@@ -2146,13 +2782,22 @@ def reconcile_staged_downloads(
         if (
             entry.get("confirmation_required")
             or entry.get("type") == "unknown"
-            or entry.get("collision_risk") not in {None, "", "none_detected"}
+            or not collision_entry_authorized(entry, args)
         ):
             errors.append({"receipt": str(receipt_path), "error": "artifact_not_eligible_for_auto_recovery"})
             continue
+        entry = entry_with_collision_confirmation(entry, args)
         try:
             browser_result = load_staging_result(receipt_path, entry, args=args)
-            inspection = inspect_download(Path(browser_result["download"]["path"]), entry)
+            inspection = apply_observed_source_binding(
+                inspect_download(
+                    Path(browser_result["download"]["path"]),
+                    entry,
+                    str(browser_result.get("actual_format", entry["primary_format"])),
+                ),
+                browser_result=browser_result,
+                entry=entry,
+            )
             if inspection_requires_source_binding_block(inspection):
                 recovered.append(
                     block_structurally_valid_unbound_vsdx(
@@ -2177,6 +2822,302 @@ def reconcile_staged_downloads(
     return recovered, errors
 
 
+def load_confirmed_collision_diagnostic(
+    entry: dict[str, Any], *, args: argparse.Namespace, unique_inventory: bool = False
+) -> dict[str, Any]:
+    """Rebuild one browser result from a previously blocked private diagnostic.
+
+    The diagnostic is not trusted by itself.  The current confirmation must
+    still bind the same plan entry and inventory occurrence, the staged file
+    must remain in its artifact-isolated directory, its fresh inspection must
+    match the recorded hash/size/kind, and the observed ProcessOn URL must
+    still yield the recorded remote id.
+    """
+
+    artifact_id = str(entry.get("artifact_id", ""))
+    diagnostic_path = (
+        args.progress.expanduser().resolve(strict=False).parent
+        / "semantic-binding-diagnostics"
+        / f"{artifact_id}.json"
+    )
+    if diagnostic_path.is_symlink() or not diagnostic_path.is_file():
+        raise BatchError(
+            f"confirmed collision diagnostic is not a regular file: {diagnostic_path}"
+        )
+    payload = load_json(diagnostic_path)
+    expected_fields = {
+        "schema_version": 1,
+        "kind": "content_structure_verified_source_binding_missing",
+        "artifact_id": artifact_id,
+        "source_path": str(entry.get("source_path", "")),
+        "title": str(entry.get("title", "")),
+        "requested_format": str(entry.get("primary_format", "")),
+    }
+    for key, expected in expected_fields.items():
+        if payload.get(key) != expected:
+            raise BatchError(
+                f"confirmed collision diagnostic {key} differs from the plan: {diagnostic_path}"
+            )
+    download = payload.get("download")
+    if not isinstance(download, dict):
+        raise BatchError(f"confirmed collision diagnostic has no download: {diagnostic_path}")
+    source = Path(str(download.get("path", ""))).expanduser().resolve(strict=False)
+    expected_parent = (args.download_dir / artifact_id).expanduser().resolve(strict=False)
+    if source.parent != expected_parent or source.is_symlink() or not source.is_file():
+        raise BatchError(
+            f"confirmed collision diagnostic is not bound to isolated staging: {diagnostic_path}"
+        )
+    suggested = str(download.get("suggested_filename", ""))
+    if Path(suggested).name != source.name:
+        raise BatchError(
+            f"confirmed collision diagnostic filename differs from staging: {diagnostic_path}"
+        )
+    prior_inspection = payload.get("inspection")
+    if not isinstance(prior_inspection, dict):
+        raise BatchError(
+            f"confirmed collision diagnostic has no prior inspection: {diagnostic_path}"
+        )
+    current_inspection = inspect_download(
+        source,
+        entry,
+        str(payload.get("actual_format", entry["primary_format"])),
+    )
+    for key in ("sha256", "bytes", "kind"):
+        if current_inspection.get(key) != prior_inspection.get(key):
+            raise BatchError(
+                f"confirmed collision staged file {key} differs from diagnostic: {diagnostic_path}"
+            )
+    source_url = str(payload.get("observed_source_url", ""))
+    remote_id = str(payload.get("observed_remote_id", ""))
+    if not source_url or not remote_id or verify_source_identity(entry, source_url) != remote_id:
+        raise BatchError(
+            f"confirmed collision diagnostic has no verified ProcessOn source identity: {diagnostic_path}"
+        )
+    if unique_inventory:
+        if entry.get("collision_risk") != "none_detected":
+            raise BatchError(
+                f"unique inventory recovery is not allowed for a collision entry: {diagnostic_path}"
+            )
+        binding = None
+    else:
+        binding = {
+            "confirmation_method": str(entry.get("_collision_confirmation_method", "")),
+            "occurrence": int(entry.get("_collision_occurrence", -1)),
+            "group_size": int(entry.get("_collision_group_size", 0)),
+        }
+    result = {
+        "artifact_id": artifact_id,
+        "source_path": str(entry["source_path"]),
+        "title": str(entry["title"]),
+        "requested_format": str(entry["primary_format"]),
+        "source_url": source_url,
+        "source_title": str(entry["title"]),
+        "remote_id": remote_id,
+        "download_menu": (
+            "recovered_unique_inventory"
+            if unique_inventory
+            else "recovered_confirmed_collision"
+        ),
+        "download": {
+            "path": str(source),
+            "bytes": source.stat().st_size,
+            "suggested_filename": suggested,
+        },
+        "ok": True,
+    }
+    if binding is not None:
+        result["collision_binding"] = binding
+    promoted = apply_observed_source_binding(
+        current_inspection, browser_result=result, entry=entry
+    )
+    if inspection_requires_source_binding_block(promoted):
+        raise BatchError(
+            f"confirmed collision diagnostic did not establish source binding: {diagnostic_path}"
+        )
+    return result
+
+
+def completed_source_identities(progress: dict[str, Any]) -> tuple[set[str], set[str]]:
+    """Replay archived metadata to collect already-bound remote ids and URLs."""
+
+    remote_ids: set[str] = set()
+    source_urls: set[str] = set()
+    for item in progress.get("completed", []):
+        destination = Path(str(item.get("archive_destination", "")))
+        metadata_path = destination.parent / "metadata.yml"
+        if not metadata_path.is_file() or metadata_path.is_symlink():
+            continue
+        metadata = read_top_level_metadata(metadata_path)
+        remote_id = str(metadata.get("remote_id") or "")
+        source_url = str(metadata.get("source_url") or "")
+        if remote_id:
+            remote_ids.add(remote_id)
+        if source_url:
+            source_urls.add(normalized_processon_source_url(source_url))
+    return remote_ids, source_urls
+
+
+def reconcile_unique_inventory_blocks(
+    plan: dict[str, Any],
+    progress: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Finalize bounded old-policy blocks whose inventory row was unique."""
+
+    plan_by_id = {
+        str(entry.get("artifact_id", "")): entry
+        for entry in plan["entries"]
+        if entry.get("artifact_id")
+    }
+    candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    errors: list[dict[str, str]] = []
+    for blocked_item in progress.get("blocked", []):
+        if len(candidates) >= args.limit:
+            break
+        artifact_id = str(blocked_item.get("artifact_id", ""))
+        if (
+            blocked_item.get("reason")
+            != "content_structure_verified_source_binding_missing"
+        ):
+            continue
+        entry = plan_by_id.get(artifact_id)
+        if entry is None:
+            errors.append(
+                {"artifact_id": artifact_id, "error": "artifact_not_in_current_plan"}
+            )
+            continue
+        if entry.get("collision_risk") != "none_detected":
+            continue
+        try:
+            candidates.append(
+                (
+                    entry,
+                    load_confirmed_collision_diagnostic(
+                        entry, args=args, unique_inventory=True
+                    ),
+                )
+            )
+        except Exception as exc:
+            errors.append(
+                {"artifact_id": artifact_id, "error": f"{type(exc).__name__}: {exc}"}
+            )
+
+    completed_remote_ids, completed_urls = completed_source_identities(progress)
+    remote_owners: dict[str, list[str]] = {}
+    url_owners: dict[str, list[str]] = {}
+    for entry, result in candidates:
+        artifact_id = str(entry["artifact_id"])
+        remote_owners.setdefault(str(result["remote_id"]), []).append(artifact_id)
+        url_owners.setdefault(
+            normalized_processon_source_url(str(result["source_url"])), []
+        ).append(artifact_id)
+    duplicate_ids = {
+        artifact_id
+        for owners in (*remote_owners.values(), *url_owners.values())
+        if len(set(owners)) > 1
+        for artifact_id in owners
+    }
+    for remote_id, owners in remote_owners.items():
+        if remote_id in completed_remote_ids:
+            duplicate_ids.update(owners)
+    for source_url, owners in url_owners.items():
+        if source_url in completed_urls:
+            duplicate_ids.update(owners)
+
+    recovered: list[dict[str, Any]] = []
+    for entry, result in candidates:
+        artifact_id = str(entry["artifact_id"])
+        if artifact_id in duplicate_ids:
+            errors.append(
+                {
+                    "artifact_id": artifact_id,
+                    "error": "unique_inventory_diagnostic_source_identity_is_not_unique",
+                }
+            )
+            continue
+        try:
+            recovered.append(finalize_result(result, entry, args=args))
+        except Exception as exc:
+            errors.append(
+                {"artifact_id": artifact_id, "error": f"{type(exc).__name__}: {exc}"}
+            )
+    return recovered, errors
+
+
+def reconcile_confirmed_collision_blocks(
+    plan: dict[str, Any], progress: dict[str, Any], *, args: argparse.Namespace
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Finalize exact confirmed collision downloads blocked by the old policy."""
+
+    confirmations = getattr(args, "collision_confirmations", OrderedDict())
+    if not confirmations:
+        return [], []
+    plan_by_id = {
+        str(entry.get("artifact_id", "")): entry
+        for entry in plan["entries"]
+        if entry.get("artifact_id")
+    }
+    candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    errors: list[dict[str, str]] = []
+    for blocked_item in progress.get("blocked", []):
+        artifact_id = str(blocked_item.get("artifact_id", ""))
+        if (
+            artifact_id not in confirmations
+            or blocked_item.get("reason")
+            != "content_structure_verified_source_binding_missing"
+        ):
+            continue
+        entry = plan_by_id.get(artifact_id)
+        if entry is None:
+            errors.append(
+                {"artifact_id": artifact_id, "error": "artifact_not_in_current_plan"}
+            )
+            continue
+        decorated = entry_with_collision_confirmation(entry, args)
+        try:
+            candidates.append(
+                (decorated, load_confirmed_collision_diagnostic(decorated, args=args))
+            )
+        except Exception as exc:
+            errors.append(
+                {"artifact_id": artifact_id, "error": f"{type(exc).__name__}: {exc}"}
+            )
+
+    remote_owners: dict[str, list[str]] = {}
+    url_owners: dict[str, list[str]] = {}
+    for entry, result in candidates:
+        artifact_id = str(entry["artifact_id"])
+        remote_owners.setdefault(str(result["remote_id"]), []).append(artifact_id)
+        url_owners.setdefault(
+            normalized_processon_source_url(str(result["source_url"])), []
+        ).append(artifact_id)
+    duplicate_ids = {
+        artifact_id
+        for owners in (*remote_owners.values(), *url_owners.values())
+        if len(set(owners)) > 1
+        for artifact_id in owners
+    }
+    recovered: list[dict[str, Any]] = []
+    for entry, result in candidates:
+        artifact_id = str(entry["artifact_id"])
+        if artifact_id in duplicate_ids:
+            errors.append(
+                {
+                    "artifact_id": artifact_id,
+                    "error": "confirmed_collision_diagnostics_share_one_source_identity",
+                }
+            )
+            continue
+        try:
+            recovered.append(finalize_result(result, entry, args=args))
+        except Exception as exc:
+            errors.append(
+                {"artifact_id": artifact_id, "error": f"{type(exc).__name__}: {exc}"}
+            )
+    return recovered, errors
+
+
 def write_receipt(receipt_dir: Path, payload: dict[str, Any]) -> Path:
     receipt_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -2188,11 +3129,37 @@ def write_receipt(receipt_dir: Path, payload: dict[str, Any]) -> Path:
     return target
 
 
+def duplicate_browser_source_artifact_ids(results: list[dict[str, Any]]) -> set[str]:
+    """Return every artifact participating in a duplicated observed remote id."""
+
+    owners: dict[str, list[str]] = {}
+    for result in results:
+        if not result.get("ok"):
+            continue
+        remote_id = str(result.get("remote_id") or "")
+        artifact_id = str(result.get("artifact_id") or "")
+        if remote_id and artifact_id:
+            owners.setdefault(remote_id, []).append(artifact_id)
+    return {
+        artifact_id
+        for artifact_ids in owners.values()
+        if len(set(artifact_ids)) > 1
+        for artifact_id in artifact_ids
+    }
+
+
 def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     plan = load_json(args.plan)
     progress = load_json(args.progress)
     validate_plan(plan, progress)
     validate_processon_url(args.team_url)
+    collision_confirmations = load_collision_confirmation(
+        args.collision_confirmation,
+        plan_path=args.plan,
+        plan=plan,
+        progress=progress,
+    )
+    args.collision_confirmations = collision_confirmations
     proof = validate_concurrency_proof(
         args.concurrency_proof, workers=args.workers, plan=plan, progress=progress
     )
@@ -2209,9 +3176,23 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         ]
     )
     reconciled: list[dict[str, Any]] = []
+    unique_block_recovered: list[dict[str, Any]] = []
+    unique_block_recovery_errors: list[dict[str, str]] = []
+    confirmed_block_recovered: list[dict[str, Any]] = []
+    confirmed_block_recovery_errors: list[dict[str, str]] = []
     staging_recovered: list[dict[str, Any]] = []
     staging_recovery_errors: list[dict[str, str]] = []
     if not args.dry_run:
+        unique_block_recovered, unique_block_recovery_errors = (
+            reconcile_unique_inventory_blocks(plan, progress, args=args)
+        )
+        if unique_block_recovered:
+            progress = load_json(args.progress)
+        confirmed_block_recovered, confirmed_block_recovery_errors = (
+            reconcile_confirmed_collision_blocks(plan, progress, args=args)
+        )
+        if confirmed_block_recovered:
+            progress = load_json(args.progress)
         staging_recovered, staging_recovery_errors = reconcile_staged_downloads(
             plan, progress, args=args
         )
@@ -2220,15 +3201,55 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         reconciled = reconcile_existing(plan, progress, args=args)
         if reconciled:
             progress = load_json(args.progress)
+    if args.recover_existing_only:
+        audit = run_json(
+            [
+                sys.executable,
+                str(ARCHIVE_STATE),
+                "audit",
+                "--plan",
+                str(args.plan),
+                "--progress",
+                str(args.progress),
+            ]
+        )
+        refreshed_progress = load_json(args.progress)
+        if args.progress_mirror:
+            write_progress_mirror(
+                args.progress_mirror,
+                plan=plan,
+                progress=refreshed_progress,
+                run_id=args.progress.parent.parent.name,
+            )
+        payload = {
+            "schema_version": 1,
+            "status": "completed" if not unique_block_recovery_errors else "partial",
+            "mode": "recover_existing_only",
+            "unique_block_recovered_count": len(unique_block_recovered),
+            "unique_block_recovered": unique_block_recovered,
+            "unique_block_recovery_error_count": len(unique_block_recovery_errors),
+            "unique_block_recovery_errors": unique_block_recovery_errors,
+            "confirmed_block_recovered_count": len(confirmed_block_recovered),
+            "staging_recovered_count": len(staging_recovered),
+            "reconciled_count": len(reconciled),
+            "audit": audit,
+            "created_at": utc_now(),
+        }
+        payload["receipt_file"] = str(write_receipt(args.receipt_dir, payload))
+        return payload
     legacy_review = legacy_flat_download_review(progress)
-    deferred_collisions = deferred_collision_entries(plan, progress)
+    deferred_collisions = deferred_collision_entries(
+        plan, progress, confirmed_ids=set(collision_confirmations)
+    )
     selected = choose_entries(
         plan,
         progress,
         args.limit,
         workers=args.workers,
         retry_failed=args.retry_failed,
+        retry_blocked=args.retry_blocked,
         artifact_ids=args.artifact_id,
+        collision_confirmations=collision_confirmations,
     )
     if not selected:
         refreshed_progress = load_json(args.progress)
@@ -2244,12 +3265,15 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             "status": "collision_confirmation_required" if deferred_collisions else "nothing_to_do",
             "selected": 0,
             "deferred_collision_count": len(deferred_collisions),
+            "authorized_collision_count": len(collision_confirmations),
             "deferred_collision_artifact_ids": [
                 str(item["artifact_id"]) for item in deferred_collisions
             ],
             "legacy_flat_download_review": legacy_review,
             "created_at": utc_now(),
             "reconciled": reconciled,
+            "confirmed_block_recovered": confirmed_block_recovered,
+            "confirmed_block_recovery_errors": confirmed_block_recovery_errors,
             "staging_recovered": staging_recovered,
             "staging_recovery_errors": staging_recovery_errors,
         }
@@ -2263,12 +3287,15 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             "concurrency_proof": str(args.concurrency_proof) if proof else None,
             "selected": len(selected),
             "deferred_collision_count": len(deferred_collisions),
+            "authorized_collision_count": len(collision_confirmations),
             "legacy_flat_download_review": legacy_review,
             "jobs": [
                 {"source_directory": directory, "artifact_ids": [item["artifact_id"] for item in items]}
                 for directory, items in build_jobs(selected, args.workers)
             ],
                 "created_at": utc_now(),
+                "confirmed_block_recovered": confirmed_block_recovered,
+                "confirmed_block_recovery_errors": confirmed_block_recovery_errors,
                 "staging_recovered": staging_recovered,
                 "staging_recovery_errors": staging_recovery_errors,
             }
@@ -2293,13 +3320,32 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     blocked: list[dict[str, Any]] = []
     pending: list[dict[str, Any]] = []
     seen_hashes: dict[str, str] = {}
+    duplicate_source_artifacts = duplicate_browser_source_artifact_ids(results)
     for result in results:
         if not result.get("ok"):
             pending.append(result)
             continue
+        if str(result.get("artifact_id", "")) in duplicate_source_artifacts:
+            pending.append(
+                {
+                    **result,
+                    "ok": False,
+                    "error": "BatchError: one ProcessOn remote id was observed for multiple artifacts",
+                    "stage": "source_identity",
+                }
+            )
+            continue
         entry = selected_by_id[str(result["artifact_id"])]
         try:
-            inspection = inspect_download(Path(result["download"]["path"]), entry)
+            inspection = apply_observed_source_binding(
+                inspect_download(
+                    Path(result["download"]["path"]),
+                    entry,
+                    str(result.get("actual_format", entry["primary_format"])),
+                ),
+                browser_result=result,
+                entry=entry,
+            )
             if inspection_requires_source_binding_block(inspection):
                 blocked_result = block_structurally_valid_unbound_vsdx(
                     result,
@@ -2358,9 +3404,18 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         "status": status,
         "selected": len(selected),
         "deferred_collision_count": len(deferred_collisions),
+        "authorized_collision_count": len(collision_confirmations),
         "legacy_flat_download_review": legacy_review,
         "reconciled_count": len(reconciled),
         "reconciled": reconciled,
+        "unique_block_recovered_count": len(unique_block_recovered),
+        "unique_block_recovered": unique_block_recovered,
+        "unique_block_recovery_error_count": len(unique_block_recovery_errors),
+        "unique_block_recovery_errors": unique_block_recovery_errors,
+        "confirmed_block_recovered_count": len(confirmed_block_recovered),
+        "confirmed_block_recovered": confirmed_block_recovered,
+        "confirmed_block_recovery_error_count": len(confirmed_block_recovery_errors),
+        "confirmed_block_recovery_errors": confirmed_block_recovery_errors,
         "staging_recovered_count": len(staging_recovered),
         "staging_recovered": staging_recovered,
         "staging_recovery_error_count": len(staging_recovery_errors),
@@ -2392,6 +3447,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-links", type=Path)
     parser.add_argument("--progress-mirror", type=Path)
     parser.add_argument("--concurrency-proof", type=Path)
+    parser.add_argument(
+        "--collision-confirmation",
+        type=Path,
+        help=(
+            "Plan-bound private inventory-order confirmation for duplicate-title artifacts; "
+            "requires --workers 1 and runs as a dedicated flow."
+        ),
+    )
     parser.add_argument("--lock-file", type=Path)
     parser.add_argument("--receipt-dir", type=Path)
     parser.add_argument(
@@ -2410,12 +3473,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Retry only the explicitly named current failed artifacts; never retries the whole queue.",
     )
     parser.add_argument(
+        "--retry-blocked",
+        action="store_true",
+        help=(
+            "Retry only explicitly named current blocked artifacts after the blocking "
+            "condition has materially changed; never retries the whole blocked queue."
+        ),
+    )
+    parser.add_argument(
         "--artifact-id",
         action="append",
         default=[],
         help="One exact current-plan artifact id; required with --retry-failed and repeatable.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--recover-existing-only",
+        action="store_true",
+        help=(
+            "Revalidate and finalize only journal/diagnostic-bound existing files; "
+            "do not launch a browser or download new files."
+        ),
+    )
     return parser
 
 
@@ -2430,6 +3509,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--timeout-ms must be within 250..300000")
     if not 0 <= args.settle_ms <= 30_000:
         parser.error("--settle-ms must be within 0..30000")
+    if args.dry_run and args.recover_existing_only:
+        parser.error("--dry-run and --recover-existing-only are mutually exclusive")
     try:
         args.profile_dir = validate_profile_dir(args.profile_dir)
         settings = load_settings(
