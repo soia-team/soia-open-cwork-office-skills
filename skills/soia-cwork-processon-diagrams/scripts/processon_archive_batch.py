@@ -74,6 +74,26 @@ SENSITIVE_TEXT_PATTERNS = (
         re.compile(r"[?&]X-Amz-(?:Credential|Signature)=", re.IGNORECASE),
     ),
 )
+SENSITIVE_REDACTION_PATTERNS = (
+    (
+        "chinese_password_assignment",
+        re.compile(r"(?P<key>密码)\s*[:：=]\s*[^\s,，;；]+"),
+    ),
+    (
+        "english_password_assignment",
+        re.compile(
+            r"(?P<key>\b(?:password|passwd|pwd))\s*[:=]\s*[^\s,;]+",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "aws_presigned_url_parameter",
+        re.compile(
+            r"(?P<separator>[?&])(?P<key>X-Amz-(?:Credential|Signature))=[^&\s]+",
+            re.IGNORECASE,
+        ),
+    ),
+)
 VSDX_DOWNLOAD_MENU_CANDIDATES = (
     "导出全部画布 （.vsdx）",
     "导出全部画布 (.vsdx)",
@@ -205,6 +225,31 @@ def progress_done_ids(progress: dict[str, Any]) -> set[str]:
             if isinstance(item, dict) and item.get("artifact_id"):
                 result.add(str(item["artifact_id"]))
     return result
+
+
+def reconciliation_skip_ids(
+    progress: dict[str, Any], *, explicitly_retried_ids: set[str]
+) -> set[str]:
+    """Keep terminal state immutable unless this run explicitly retries it.
+
+    A half-commit may leave a valid archive file and metadata before the state
+    record is updated.  Completed artifacts must always remain immutable.
+    Failed/blocked artifacts may be reconciled only when the caller has named
+    them through the validated retry flow for this run.
+    """
+
+    completed = {
+        str(item.get("artifact_id", ""))
+        for item in progress.get("completed", [])
+        if isinstance(item, dict) and item.get("artifact_id")
+    }
+    terminal = {
+        str(item.get("artifact_id", ""))
+        for key in ("failed", "blocked")
+        for item in progress.get(key, [])
+        if isinstance(item, dict) and item.get("artifact_id")
+    }
+    return completed | (terminal - explicitly_retried_ids)
 
 
 def failed_ids(progress: dict[str, Any]) -> set[str]:
@@ -1183,6 +1228,10 @@ def write_staging_receipt(progress_path: Path, result: dict[str, Any]) -> Path:
         "source_lookup_method": str(
             result.get("source_lookup_method", "planned_directory")
         ),
+        "empty_source_confirmed": bool(result.get("empty_source_confirmed", False)),
+        "empty_source_editor_signal": str(
+            result.get("empty_source_editor_signal", "")
+        ),
         "collision_binding": result.get("collision_binding"),
         "download": {
             "path": str(download["path"]),
@@ -1275,6 +1324,10 @@ def load_staging_result(
         "download_menu": str(payload.get("download_menu", "")),
         "source_lookup_method": str(
             payload.get("source_lookup_method", "planned_directory")
+        ),
+        "empty_source_confirmed": bool(payload.get("empty_source_confirmed", False)),
+        "empty_source_editor_signal": str(
+            payload.get("empty_source_editor_signal", "")
         ),
         "download": {
             "path": str(source),
@@ -1689,9 +1742,17 @@ def apply_observed_source_binding(
     if not source_url or not remote_id or verify_source_identity(entry, source_url) != remote_id:
         raise BatchError("unique inventory result has no verified ProcessOn source identity")
     result = dict(promoted)
-    result["content_semantic_status"] = "title_not_present"
+    if browser_result.get("empty_source_confirmed"):
+        if result.get("kind") != "visio-vsdx" or int(result.get("text_count", -1)) != 0:
+            raise BatchError("live empty-canvas signal disagrees with the downloaded VSDX")
+        result["content_semantic_status"] = "empty_source_confirmed"
+        result["semantic_match_method"] = (
+            "live_editor_empty_canvas_and_observed_remote_id"
+        )
+    else:
+        result["content_semantic_status"] = "title_not_present"
+        result["semantic_match_method"] = "unique_inventory_row_and_observed_remote_id"
     result["semantic_status"] = "matched"
-    result["semantic_match_method"] = "unique_inventory_row_and_observed_remote_id"
     return result
 
 
@@ -1786,13 +1847,29 @@ async def download_one(
                 "occurrence": int(entry["_collision_occurrence"]),
                 "group_size": int(entry["_collision_group_size"]),
             }
-        source_page, popup = await open_source_editor(page, entry, timeout_ms, receipt)
+        direct_source_url = str(entry.get("_direct_source_url") or "").strip()
+        if direct_source_url:
+            if not source_url_matches_document_type(entry, direct_source_url):
+                raise BatchError("direct retry source URL route differs from the plan type")
+            await page.goto(
+                validate_processon_url(direct_source_url),
+                wait_until="domcontentloaded",
+                timeout=timeout_ms,
+            )
+            await page.wait_for_timeout(900)
+            source_page = page
+        else:
+            source_page, popup = await open_source_editor(page, entry, timeout_ms, receipt)
         source_url = validate_processon_url(source_page.url)
         source_title = await wait_for_source_title(source_page, title, timeout_ms)
         remote_id = verify_source_identity(entry, source_url)
         result["source_url"] = source_url
         result["source_title"] = source_title
         result["remote_id"] = remote_id
+        if entry.get("_require_live_empty_canvas"):
+            await wait_for_live_empty_canvas(source_page, timeout_ms)
+            result["empty_source_confirmed"] = True
+            result["empty_source_editor_signal"] = "shape_count_zero"
 
         menu_label, menu = await open_editor_export_menu(source_page, entry, timeout_ms)
         result["download_menu"] = menu_label
@@ -1865,6 +1942,18 @@ async def worker_loop(
             directory, entries = job
             for entry in entries:
                 try:
+                    if entry.get("_direct_source_url"):
+                        results.append(
+                            await download_one(
+                                page,
+                                entry,
+                                download_dir=download_dir,
+                                progress_path=progress_path,
+                                timeout_ms=timeout_ms,
+                                receipt=receipt,
+                            )
+                        )
+                        continue
                     # A title can navigate this same worker into the official
                     # editor. Rebuild the approved directory view before each
                     # artifact instead of relying on history/back semantics.
@@ -2089,6 +2178,458 @@ def verify_source_identity(entry: dict[str, Any], observed_url: str) -> str:
     return remote_id
 
 
+def source_url_matches_document_type(entry: dict[str, Any], source_url: str) -> bool:
+    """Require the provider route to agree with the audited plan type."""
+
+    parsed = urlparse(validate_processon_url(source_url))
+    document_type = str(entry.get("type") or "").strip().lower()
+    if document_type == "flowchart":
+        return bool(re.fullmatch(r"/diagraming/[^/]+", parsed.path.rstrip("/")))
+    if document_type == "mindmap":
+        return bool(re.fullmatch(r"/mindmap/[^/]+", parsed.path.rstrip("/")))
+    return False
+
+
+def retry_failed_source_binding_from_evidence(
+    entry: dict[str, Any],
+    failed_record: dict[str, Any],
+    *,
+    progress_path: Path,
+) -> dict[str, str] | None:
+    """Recover one exact source URL from an audited failed batch receipt.
+
+    This is deliberately narrower than a general URL override.  The evidence
+    must already be copied under the run's private evidence root, match its
+    recorded size and SHA-256, and contain exactly one source URL for the same
+    artifact/title/path.  Ordinary pending work and blocked retries never use
+    this route.
+    """
+
+    artifact_id = str(entry.get("artifact_id") or "")
+    if str(failed_record.get("artifact_id") or "") != artifact_id:
+        raise BatchError("failed evidence record differs from the selected artifact")
+    evidence_root = (progress_path.expanduser().resolve(strict=False).parent / "evidence").resolve(
+        strict=False
+    )
+    candidates: dict[str, dict[str, str]] = {}
+    for evidence in failed_record.get("evidence_files") or []:
+        if not isinstance(evidence, dict):
+            raise BatchError("failed evidence entry must be an object")
+        archived_path = Path(str(evidence.get("archived_path") or "")).expanduser().resolve(
+            strict=False
+        )
+        try:
+            archived_path.relative_to(evidence_root)
+        except ValueError as exc:
+            raise BatchError("failed evidence file is outside the run evidence root") from exc
+        if archived_path.is_symlink() or not archived_path.is_file():
+            raise BatchError(f"failed evidence file is not a regular file: {archived_path}")
+        expected_bytes = int(evidence.get("bytes") or 0)
+        expected_sha256 = str(evidence.get("sha256") or "")
+        if expected_bytes <= 0 or archived_path.stat().st_size != expected_bytes:
+            raise BatchError("failed evidence file size differs from progress")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256) or sha256(archived_path) != expected_sha256:
+            raise BatchError("failed evidence file SHA-256 differs from progress")
+        try:
+            receipt = load_json(archived_path)
+        except Exception:
+            continue
+        for bucket in ("completed", "blocked", "pending"):
+            for item in receipt.get(bucket) or []:
+                if not isinstance(item, dict) or str(item.get("artifact_id") or "") != artifact_id:
+                    continue
+                if str(item.get("title") or "") != str(entry.get("title") or ""):
+                    raise BatchError("failed receipt title differs from the current plan")
+                receipt_path = str(item.get("source_path") or "")
+                if receipt_path and receipt_path != str(entry.get("source_path") or ""):
+                    raise BatchError("failed receipt source path differs from the current plan")
+                source_url = str(item.get("source_url") or "").strip()
+                if not source_url:
+                    continue
+                if not source_url_matches_document_type(entry, source_url):
+                    raise BatchError("failed receipt source URL route differs from the plan type")
+                normalized = normalized_processon_source_url(source_url)
+                remote_id = urlparse(normalized).path.rstrip("/").split("/")[-1]
+                if not remote_id:
+                    raise BatchError("failed receipt source URL has no remote id")
+                candidates[normalized] = {
+                    "source_url": normalized,
+                    "remote_id": remote_id,
+                    "evidence_path": str(archived_path),
+                    "evidence_sha256": expected_sha256,
+                }
+    if len(candidates) > 1:
+        raise BatchError(
+            f"failed evidence contains multiple ProcessOn source URLs: {artifact_id}"
+        )
+    return next(iter(candidates.values()), None)
+
+
+def bind_retry_failed_source_evidence(
+    selected: list[dict[str, Any]],
+    progress: dict[str, Any],
+    *,
+    progress_path: Path,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Decorate only failed retries that have one replayable source receipt."""
+
+    failed_by_id = {
+        str(item.get("artifact_id") or ""): item
+        for item in progress.get("failed", [])
+        if isinstance(item, dict) and item.get("artifact_id")
+    }
+    bound: list[dict[str, Any]] = []
+    bound_ids: list[str] = []
+    for original in selected:
+        entry = dict(original)
+        artifact_id = str(entry.get("artifact_id") or "")
+        failed_record = failed_by_id.get(artifact_id)
+        if failed_record is None:
+            bound.append(entry)
+            continue
+        recovered = retry_failed_source_binding_from_evidence(
+            entry,
+            failed_record,
+            progress_path=progress_path,
+        )
+        if recovered is None:
+            bound.append(entry)
+            continue
+        entry["source_url"] = recovered["source_url"]
+        entry["remote_id"] = recovered["remote_id"]
+        entry["_direct_source_url"] = recovered["source_url"]
+        entry["_source_lookup_method"] = "audited_failed_receipt_source_url"
+        entry["_retry_source_evidence_path"] = recovered["evidence_path"]
+        entry["_retry_source_evidence_sha256"] = recovered["evidence_sha256"]
+        bound.append(entry)
+        bound_ids.append(artifact_id)
+    return bound, bound_ids
+
+
+def retry_blocked_empty_source_binding_from_evidence(
+    entry: dict[str, Any],
+    blocked_record: dict[str, Any],
+    *,
+    output_root: Path,
+) -> dict[str, str]:
+    """Recover one exact empty-canvas URL from audited quarantine metadata."""
+
+    artifact_id = str(entry.get("artifact_id") or "")
+    if str(blocked_record.get("artifact_id") or "") != artifact_id:
+        raise BatchError("blocked evidence record differs from the selected artifact")
+    reason = str(blocked_record.get("reason") or "").lower()
+    if not any(marker in reason for marker in ("0 shapes", "empty canvas")):
+        raise BatchError("blocked artifact was not classified as an empty source")
+    revalidation = blocked_record.get("revalidation")
+    if not isinstance(revalidation, dict):
+        raise BatchError("empty-source block has no revalidation evidence")
+    quarantine_root = (output_root / "_quarantine").expanduser().resolve(strict=False)
+    metadata_candidates: list[Path] = []
+    for evidence in revalidation.get("quarantine_files") or []:
+        if not isinstance(evidence, dict):
+            raise BatchError("empty-source quarantine evidence must be an object")
+        path = Path(str(evidence.get("quarantine_path") or "")).expanduser().resolve(
+            strict=False
+        )
+        if path.name != "metadata.yml":
+            continue
+        try:
+            path.relative_to(quarantine_root)
+        except ValueError as exc:
+            raise BatchError("empty-source metadata is outside the archive quarantine") from exc
+        if path.is_symlink() or not path.is_file():
+            raise BatchError(f"empty-source metadata is not a regular file: {path}")
+        expected_bytes = int(evidence.get("bytes") or 0)
+        expected_sha256 = str(evidence.get("sha256") or "")
+        if expected_bytes <= 0 or path.stat().st_size != expected_bytes:
+            raise BatchError("empty-source metadata size differs from progress")
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+            or sha256(path) != expected_sha256
+        ):
+            raise BatchError("empty-source metadata SHA-256 differs from progress")
+        metadata_candidates.append(path)
+    if len(metadata_candidates) != 1:
+        raise BatchError("empty-source block must have exactly one audited metadata file")
+    metadata = read_top_level_metadata(metadata_candidates[0])
+    if metadata.get("artifact_id") != artifact_id:
+        raise BatchError("empty-source metadata artifact_id differs from the plan")
+    if metadata.get("source_path") != str(entry.get("source_path") or ""):
+        raise BatchError("empty-source metadata source path differs from the plan")
+    source_url = str(metadata.get("source_url") or "")
+    remote_id = str(metadata.get("remote_id") or "")
+    if not source_url_matches_document_type(entry, source_url):
+        raise BatchError("empty-source metadata URL route differs from the plan type")
+    observed_remote_id = verify_source_identity(entry, source_url)
+    if not remote_id or observed_remote_id != remote_id:
+        raise BatchError("empty-source metadata remote id differs from its source URL")
+    return {
+        "source_url": normalized_processon_source_url(source_url),
+        "remote_id": remote_id,
+        "evidence_path": str(metadata_candidates[0]),
+    }
+
+
+def bind_retry_blocked_empty_source_evidence(
+    selected: list[dict[str, Any]],
+    progress: dict[str, Any],
+    *,
+    output_root: Path,
+    allowed_artifact_ids: set[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Decorate approved empty-source retries with exact audited URLs."""
+
+    blocked_by_id = {
+        str(item.get("artifact_id") or ""): item
+        for item in progress.get("blocked", [])
+        if isinstance(item, dict) and item.get("artifact_id")
+    }
+    selected_ids = {str(entry.get("artifact_id") or "") for entry in selected}
+    if not allowed_artifact_ids <= selected_ids:
+        missing = sorted(allowed_artifact_ids - selected_ids)[0]
+        raise BatchError(f"empty-source approval is not in the blocked retry: {missing}")
+    bound: list[dict[str, Any]] = []
+    bound_ids: list[str] = []
+    for original in selected:
+        entry = dict(original)
+        artifact_id = str(entry.get("artifact_id") or "")
+        if artifact_id not in allowed_artifact_ids:
+            bound.append(entry)
+            continue
+        blocked_record = blocked_by_id.get(artifact_id)
+        if blocked_record is None:
+            raise BatchError(f"empty-source approval is not currently blocked: {artifact_id}")
+        recovered = retry_blocked_empty_source_binding_from_evidence(
+            entry,
+            blocked_record,
+            output_root=output_root,
+        )
+        entry["source_url"] = recovered["source_url"]
+        entry["remote_id"] = recovered["remote_id"]
+        entry["_direct_source_url"] = recovered["source_url"]
+        entry["_source_lookup_method"] = "audited_empty_source_metadata_url"
+        entry["_require_live_empty_canvas"] = True
+        entry["_empty_source_evidence_path"] = recovered["evidence_path"]
+        bound.append(entry)
+        bound_ids.append(artifact_id)
+    return bound, bound_ids
+
+
+def validated_security_block_source(
+    entry: dict[str, Any],
+    blocked_record: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+) -> dict[str, str]:
+    """Resolve one secret-bearing VSDX from audited quarantine or run evidence."""
+
+    artifact_id = str(entry.get("artifact_id") or "")
+    if str(blocked_record.get("artifact_id") or "") != artifact_id:
+        raise BatchError("security block differs from the selected artifact")
+    reason = str(blocked_record.get("reason") or "").lower()
+    if not any(marker in reason for marker in ("credential", "presigned", "security")):
+        raise BatchError("blocked artifact was not classified for security review")
+    candidates: dict[str, dict[str, str]] = {}
+    quarantine_root = (args.output_root / "_quarantine").expanduser().resolve(
+        strict=False
+    )
+    revalidation = blocked_record.get("revalidation")
+    if isinstance(revalidation, dict):
+        metadata_path: Path | None = None
+        source_path: Path | None = None
+        for evidence in revalidation.get("quarantine_files") or []:
+            if not isinstance(evidence, dict):
+                raise BatchError("security quarantine evidence must be an object")
+            path = Path(str(evidence.get("quarantine_path") or "")).expanduser().resolve(
+                strict=False
+            )
+            try:
+                path.relative_to(quarantine_root)
+            except ValueError as exc:
+                raise BatchError("security evidence is outside the archive quarantine") from exc
+            if path.is_symlink() or not path.is_file():
+                raise BatchError(f"security evidence is not a regular file: {path}")
+            expected_bytes = int(evidence.get("bytes") or 0)
+            expected_sha256 = str(evidence.get("sha256") or "")
+            if expected_bytes <= 0 or path.stat().st_size != expected_bytes:
+                raise BatchError("security evidence size differs from progress")
+            if (
+                not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+                or sha256(path) != expected_sha256
+            ):
+                raise BatchError("security evidence SHA-256 differs from progress")
+            if path.name == "metadata.yml":
+                metadata_path = path
+            elif path.suffix.lower() == ".vsdx":
+                source_path = path
+        if metadata_path and source_path:
+            metadata = read_top_level_metadata(metadata_path)
+            if metadata.get("artifact_id") != artifact_id:
+                raise BatchError("security metadata artifact_id differs from the plan")
+            if metadata.get("source_path") != str(entry.get("source_path") or ""):
+                raise BatchError("security metadata source path differs from the plan")
+            source_url = str(metadata.get("source_url") or "")
+            remote_id = str(metadata.get("remote_id") or "")
+            if not source_url_matches_document_type(entry, source_url):
+                raise BatchError("security metadata URL route differs from the plan type")
+            if verify_source_identity(entry, source_url) != remote_id:
+                raise BatchError("security metadata remote id differs from its source URL")
+            candidates[normalized_processon_source_url(source_url)] = {
+                "source": str(source_path),
+                "source_url": normalized_processon_source_url(source_url),
+                "remote_id": remote_id,
+                "evidence_path": str(metadata_path),
+            }
+
+    evidence_root = (args.progress.parent / "evidence").resolve(strict=False)
+    for evidence in blocked_record.get("evidence_files") or []:
+        if not isinstance(evidence, dict):
+            raise BatchError("security run evidence must be an object")
+        receipt_path = Path(str(evidence.get("archived_path") or "")).expanduser().resolve(
+            strict=False
+        )
+        try:
+            receipt_path.relative_to(evidence_root)
+        except ValueError as exc:
+            raise BatchError("security receipt is outside the run evidence root") from exc
+        if receipt_path.suffix.lower() != ".json":
+            continue
+        if receipt_path.is_symlink() or not receipt_path.is_file():
+            raise BatchError(f"security receipt is not a regular file: {receipt_path}")
+        expected_bytes = int(evidence.get("bytes") or 0)
+        expected_sha256 = str(evidence.get("sha256") or "")
+        if expected_bytes <= 0 or receipt_path.stat().st_size != expected_bytes:
+            raise BatchError("security receipt size differs from progress")
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+            or sha256(receipt_path) != expected_sha256
+        ):
+            raise BatchError("security receipt SHA-256 differs from progress")
+        receipt = load_json(receipt_path)
+        for bucket in ("blocked", "pending", "completed"):
+            for item in receipt.get(bucket) or []:
+                if not isinstance(item, dict) or str(item.get("artifact_id") or "") != artifact_id:
+                    continue
+                if str(item.get("source_path") or "") != str(entry.get("source_path") or ""):
+                    raise BatchError("security receipt source path differs from the plan")
+                source_url = str(item.get("source_url") or "")
+                remote_id = str(item.get("remote_id") or "")
+                download = item.get("download")
+                if not isinstance(download, dict):
+                    continue
+                source = Path(str(download.get("path") or "")).expanduser().resolve(
+                    strict=False
+                )
+                expected_parent = (args.download_dir / artifact_id).resolve(strict=False)
+                if source.parent != expected_parent or source.is_symlink() or not source.is_file():
+                    raise BatchError("security receipt source is not isolated staging")
+                if int(download.get("bytes") or 0) != source.stat().st_size:
+                    raise BatchError("security receipt source size differs from staging")
+                if not source_url_matches_document_type(entry, source_url):
+                    raise BatchError("security receipt URL route differs from the plan type")
+                if verify_source_identity(entry, source_url) != remote_id:
+                    raise BatchError("security receipt remote id differs from its source URL")
+                candidates[normalized_processon_source_url(source_url)] = {
+                    "source": str(source),
+                    "source_url": normalized_processon_source_url(source_url),
+                    "remote_id": remote_id,
+                    "evidence_path": str(receipt_path),
+                }
+    if len(candidates) != 1:
+        raise BatchError("security block must resolve to exactly one audited source identity")
+    return next(iter(candidates.values()))
+
+
+def sanitize_security_blocks(
+    plan: dict[str, Any],
+    progress: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+    artifact_ids: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Archive safe VSDX derivatives while retaining originals in quarantine."""
+
+    plan_by_id = {
+        str(entry.get("artifact_id") or ""): entry
+        for entry in plan.get("entries", [])
+        if entry.get("artifact_id")
+    }
+    blocked_by_id = {
+        str(item.get("artifact_id") or ""): item
+        for item in progress.get("blocked", [])
+        if isinstance(item, dict) and item.get("artifact_id")
+    }
+    completed: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for artifact_id in artifact_ids:
+        entry = plan_by_id.get(artifact_id)
+        blocked_record = blocked_by_id.get(artifact_id)
+        if entry is None or blocked_record is None:
+            errors.append({"artifact_id": artifact_id, "error": "not_currently_blocked"})
+            continue
+        try:
+            evidence = validated_security_block_source(
+                entry,
+                blocked_record,
+                args=args,
+            )
+            source = Path(evidence["source"])
+            sanitized_path = safe_download_path(
+                args.download_dir,
+                artifact_id,
+                f"{entry['title']}--sanitized.vsdx",
+            )
+            sanitization = sanitize_vsdx_sensitive_text(source, sanitized_path)
+            result = {
+                "artifact_id": artifact_id,
+                "source_path": str(entry["source_path"]),
+                "title": str(entry["title"]),
+                "requested_format": str(entry["primary_format"]),
+                "actual_format": "vsdx",
+                "source_lookup_method": "audited_security_block_evidence",
+                "source_url": evidence["source_url"],
+                "source_title": str(entry["title"]),
+                "remote_id": evidence["remote_id"],
+                "download_menu": "security_redacted_derivative",
+                "fallback_used": False,
+                "fallback_reason": "",
+                "sanitization": sanitization,
+                "download": {
+                    "artifact_id": artifact_id,
+                    "path": str(sanitized_path),
+                    "bytes": sanitized_path.stat().st_size,
+                    "suggested_filename": sanitized_path.name,
+                    "download_menu": "security_redacted_derivative",
+                },
+                "ok": True,
+            }
+            completed.append(finalize_result(result, entry, args=args))
+        except Exception as exc:
+            errors.append(
+                {"artifact_id": artifact_id, "error": f"{type(exc).__name__}: {exc}"}
+            )
+    return completed, errors
+
+
+def visible_editor_confirms_empty_canvas(text: str) -> bool:
+    return bool(re.search(r"图形\s*[：:]\s*0(?:\D|$)", text))
+
+
+async def wait_for_live_empty_canvas(page: Any, timeout_ms: int) -> None:
+    """Wait for the editor's authoritative rendered shape counter."""
+
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        editor_text = await page.locator("body").inner_text(timeout=timeout_ms)
+        match = re.search(r"图形\s*[：:]\s*(\d+)(?:\D|$)", editor_text)
+        if match:
+            if int(match.group(1)) == 0:
+                return
+            raise BatchError("live ProcessOn editor contains one or more shapes")
+        await page.wait_for_timeout(150)
+    raise BatchError("live ProcessOn editor did not expose a shape count before timeout")
+
+
 def title_signals(title: str) -> list[str]:
     candidates: list[str] = []
     candidates.extend(re.findall(r"[A-Za-z][A-Za-z0-9_.-]{1,}", title))
@@ -2147,6 +2688,84 @@ def sensitive_text_findings(texts: list[str]) -> list[dict[str, Any]]:
         if count:
             findings.append({"type": finding_type, "count": count})
     return findings
+
+
+def redact_sensitive_text(text: str) -> tuple[str, dict[str, int]]:
+    """Redact supported secret values without returning or logging them."""
+
+    result = text
+    counts: dict[str, int] = {}
+    for finding_type, pattern in SENSITIVE_REDACTION_PATTERNS:
+        if finding_type == "aws_presigned_url_parameter":
+            replacement = lambda match: (  # noqa: E731 - local fixed replacer
+                f"{match.group('separator')}{match.group('key')}-REDACTED"
+            )
+        else:
+            replacement = lambda match: f"{match.group('key')} [REDACTED]"  # noqa: E731
+        result, count = pattern.subn(replacement, result)
+        if count:
+            counts[finding_type] = count
+    return result, counts
+
+
+def sanitize_vsdx_sensitive_text(source: Path, destination: Path) -> dict[str, Any]:
+    """Create a same-format derivative with only detected secret values redacted."""
+
+    if source.is_symlink() or not source.is_file():
+        raise BatchError(f"security redaction source is not a regular file: {source}")
+    if destination.exists() or destination.is_symlink():
+        raise BatchError(f"security redaction destination already exists: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    counts: dict[str, int] = {}
+    try:
+        with zipfile.ZipFile(source) as archive, zipfile.ZipFile(temporary, "w") as output:
+            names = validate_zip_archive(archive)
+            if "visio/document.xml" not in names:
+                raise BatchError("security redaction source is missing visio/document.xml")
+            page_parts = {
+                name for name in names if re.fullmatch(r"visio/pages/page\d+\.xml", name)
+            }
+            if not page_parts:
+                raise BatchError("security redaction source has no page XML")
+            for info in archive.infolist():
+                data = archive.read(info.filename)
+                if info.filename in page_parts:
+                    root = ElementTree.fromstring(data)
+                    changed = False
+                    for element in root.iter():
+                        if element.tag.rsplit("}", 1)[-1] != "Text":
+                            continue
+                        combined = "".join(element.itertext())
+                        redacted, element_counts = redact_sensitive_text(combined)
+                        if not element_counts:
+                            continue
+                        for finding_type, count in element_counts.items():
+                            counts[finding_type] = counts.get(finding_type, 0) + count
+                        for child in list(element):
+                            element.remove(child)
+                        element.text = redacted
+                        changed = True
+                    if changed:
+                        data = ElementTree.tostring(
+                            root, encoding="utf-8", xml_declaration=True
+                        )
+                output.writestr(info, data)
+        if not counts:
+            raise BatchError("security redaction found no supported sensitive values")
+        structure, _ = inspect_vsdx_structure(temporary)
+        os.replace(temporary, destination)
+        return {
+            "status": "sanitized_derivative",
+            "source_sha256": sha256(source),
+            "destination_sha256": sha256(destination),
+            "bytes": destination.stat().st_size,
+            "redaction_counts": counts,
+            "inspection": structure,
+        }
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def validate_zip_archive(archive: zipfile.ZipFile) -> list[str]:
@@ -2362,6 +2981,14 @@ def write_metadata(
             f"collision_occurrence: {int(collision_binding['occurrence'])}",
             f"collision_group_size: {int(collision_binding['group_size'])}",
         ]
+    sanitization = browser_result.get("sanitization")
+    if isinstance(sanitization, dict):
+        lines[lines.index("inspection:"):lines.index("inspection:")] = [
+            'derivative_status: "sanitized_derivative"',
+            f"sanitized_from_sha256: {yaml_string(sanitization.get('source_sha256', ''))}",
+            f"redaction_counts: {json.dumps(sanitization.get('redaction_counts', {}), ensure_ascii=False, sort_keys=True)}",
+            'original_retention: "restricted_quarantine"',
+        ]
     for key, value in inspection.items():
         if key in {"bytes", "sha256"}:
             continue
@@ -2372,9 +2999,15 @@ def write_metadata(
             lines.append(f"  {key}: {value}")
         else:
             lines.append(f"  {key}: {yaml_string(value)}")
+    verification = (
+        "隔离原件、源 URL 与 SHA-256 已核对；敏感值已在同格式副本中替换为占位符，"
+        "复扫无命中，原件继续保留在受限隔离区。"
+        if isinstance(sanitization, dict)
+        else "浏览器弹页标题、源 URL、下载文件名、文件结构与文件内标题信号均已核对；归档 SHA-256 与下载文件一致。"
+    )
     lines.extend(
         [
-            f"verification: {yaml_string('浏览器弹页标题、源 URL、下载文件名、文件结构与文件内标题信号均已核对；归档 SHA-256 与下载文件一致。')}",
+            f"verification: {yaml_string(verification)}",
             'visibility: "internal"',
         ]
     )
@@ -2400,12 +3033,67 @@ def read_top_level_metadata(path: Path) -> dict[str, Any]:
     return result
 
 
+def quarantine_recreated_move_source(
+    source: Path,
+    *,
+    artifact_id: str,
+    archived_sha256: str,
+    manifest: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    """Move a later retry residue away from an already moved source path.
+
+    A successful no-copy finalization removes the original staging path.  A
+    subsequent retry can recreate that same path with provider-generated
+    metadata (for example a fresh POS exportTime) and a different SHA-256.
+    Keep that later export as private run evidence instead of overwriting the
+    archive or letting it impersonate the source recorded by the manifest.
+    """
+
+    if not source.exists():
+        return None
+    if source.is_symlink() or not source.is_file():
+        raise BatchError(f"recreated move source is not a regular file: {source}")
+    source_sha256 = sha256(source)
+    if source_sha256 == archived_sha256:
+        return None
+    if manifest.get("operation") != "move":
+        raise BatchError("a non-move manifest cannot ignore a changed download source")
+    expected_parent = (args.download_dir / artifact_id).expanduser().resolve(strict=False)
+    if source.parent.resolve(strict=False) != expected_parent:
+        raise BatchError(
+            f"recreated move source is outside the artifact staging directory: {source}"
+        )
+    quarantine_dir = args.progress.parent / "retry-residuals" / artifact_id
+    quarantine_dir.mkdir(parents=True, exist_ok=True)
+    if quarantine_dir.is_symlink():
+        raise BatchError(f"retry residual directory must not be a symlink: {quarantine_dir}")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    quarantine = quarantine_dir / f"{source.stem}--{source_sha256[:12]}--{stamp}{source.suffix}"
+    if quarantine.exists():
+        raise BatchError(f"retry residual target already exists: {quarantine}")
+    os.replace(source, quarantine)
+    return {
+        "original_path": str(source),
+        "quarantine_path": str(quarantine),
+        "bytes": quarantine.stat().st_size,
+        "sha256": source_sha256,
+        "reason": "source_path_recreated_after_manifest_move",
+    }
+
+
 def reconcile_existing(
-    plan: dict[str, Any], progress: dict[str, Any], *, args: argparse.Namespace
+    plan: dict[str, Any],
+    progress: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+    explicitly_retried_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Finish a prior half-commit when metadata and finalizer evidence agree."""
 
-    done = progress_done_ids(progress)
+    done = reconciliation_skip_ids(
+        progress, explicitly_retried_ids=explicitly_retried_ids or set()
+    )
     recovered: list[dict[str, Any]] = []
     for entry in plan["entries"]:
         artifact_id = str(entry.get("artifact_id", ""))
@@ -2442,33 +3130,49 @@ def reconcile_existing(
         verified_remote_id = verify_source_identity(entry, browser_result["source_url"])
         if verified_remote_id != browser_result["remote_id"]:
             raise BatchError(f"existing metadata source identity mismatch: {metadata_path}")
-        if args.source_links:
-            append_source_link(args.source_links, entry, browser_result)
-        recorded = run_json(
-            [
-                sys.executable,
-                str(ARCHIVE_STATE),
-                "record",
-                "--plan",
-                str(args.plan),
-                "--progress",
-                str(args.progress),
-                "--artifact-id",
-                artifact_id,
-                "--download-source",
-                str(source),
-                "--destination",
-                str(destination),
-                "--manifest",
-                str(manifest_path),
-                "--requested-format",
-                str(entry["primary_format"]),
-                "--actual-format",
-                str(metadata["actual_format"]),
-                "--download-event",
-                "observed",
-            ]
-        )
+        recreated_source = None
+        if artifact_id in (explicitly_retried_ids or set()):
+            recreated_source = quarantine_recreated_move_source(
+                source,
+                artifact_id=artifact_id,
+                archived_sha256=str(metadata["sha256"]),
+                manifest=manifest,
+                args=args,
+            )
+        try:
+            if args.source_links:
+                append_source_link(args.source_links, entry, browser_result)
+            recorded = run_json(
+                [
+                    sys.executable,
+                    str(ARCHIVE_STATE),
+                    "record",
+                    "--plan",
+                    str(args.plan),
+                    "--progress",
+                    str(args.progress),
+                    "--artifact-id",
+                    artifact_id,
+                    "--download-source",
+                    str(source),
+                    "--destination",
+                    str(destination),
+                    "--manifest",
+                    str(manifest_path),
+                    "--requested-format",
+                    str(entry["primary_format"]),
+                    "--actual-format",
+                    str(metadata["actual_format"]),
+                    "--download-event",
+                    "observed",
+                ]
+            )
+        except Exception:
+            if recreated_source:
+                quarantine = Path(recreated_source["quarantine_path"])
+                if quarantine.exists() and not source.exists():
+                    os.replace(quarantine, source)
+            raise
         recovered.append(
             {
                 "artifact_id": artifact_id,
@@ -2476,6 +3180,7 @@ def reconcile_existing(
                 "destination": str(destination),
                 "metadata": str(metadata_path),
                 "manifest": str(manifest_path),
+                "recreated_source_quarantine": recreated_source,
                 "progress_counts": recorded.get("counts", {}),
             }
         )
@@ -3153,6 +3858,31 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     progress = load_json(args.progress)
     validate_plan(plan, progress)
     validate_processon_url(args.team_url)
+    empty_source_ids = [
+        str(item).strip() for item in args.allow_verified_empty_source or []
+    ]
+    if len(empty_source_ids) != len(set(empty_source_ids)):
+        raise BatchError("--allow-verified-empty-source values must be unique")
+    if empty_source_ids and not args.retry_blocked:
+        raise BatchError("--allow-verified-empty-source requires --retry-blocked")
+    if not set(empty_source_ids) <= set(args.artifact_id or []):
+        raise BatchError(
+            "--allow-verified-empty-source must also be named by --artifact-id"
+        )
+    security_redaction_ids = [
+        str(item).strip() for item in args.redact_security_block or []
+    ]
+    if len(security_redaction_ids) != len(set(security_redaction_ids)):
+        raise BatchError("--redact-security-block values must be unique")
+    if security_redaction_ids and not args.retry_blocked:
+        raise BatchError("--redact-security-block requires --retry-blocked")
+    if not set(security_redaction_ids) <= set(args.artifact_id or []):
+        raise BatchError("--redact-security-block must also be named by --artifact-id")
+    overlap = set(security_redaction_ids) & set(empty_source_ids)
+    if overlap:
+        raise BatchError(
+            "one artifact cannot be both an empty source and a security redaction"
+        )
     collision_confirmations = load_collision_confirmation(
         args.collision_confirmation,
         plan_path=args.plan,
@@ -3175,6 +3905,37 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             str(args.progress),
         ]
     )
+    security_redaction_preview: list[dict[str, str]] = []
+    if security_redaction_ids:
+        plan_by_id = {
+            str(entry.get("artifact_id") or ""): entry
+            for entry in plan.get("entries", [])
+            if entry.get("artifact_id")
+        }
+        blocked_by_id = {
+            str(item.get("artifact_id") or ""): item
+            for item in progress.get("blocked", [])
+            if isinstance(item, dict) and item.get("artifact_id")
+        }
+        for artifact_id in security_redaction_ids:
+            entry = plan_by_id.get(artifact_id)
+            blocked_record = blocked_by_id.get(artifact_id)
+            if entry is None or blocked_record is None:
+                raise BatchError(
+                    f"security redaction artifact is not currently blocked: {artifact_id}"
+                )
+            evidence = validated_security_block_source(
+                entry,
+                blocked_record,
+                args=args,
+            )
+            security_redaction_preview.append(
+                {
+                    "artifact_id": artifact_id,
+                    "source_sha256": sha256(Path(evidence["source"])),
+                    "source_url": evidence["source_url"],
+                }
+            )
     reconciled: list[dict[str, Any]] = []
     unique_block_recovered: list[dict[str, Any]] = []
     unique_block_recovery_errors: list[dict[str, str]] = []
@@ -3182,6 +3943,23 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     confirmed_block_recovery_errors: list[dict[str, str]] = []
     staging_recovered: list[dict[str, Any]] = []
     staging_recovery_errors: list[dict[str, str]] = []
+    security_redacted: list[dict[str, Any]] = []
+    security_redaction_errors: list[dict[str, str]] = []
+    explicitly_retried_ids: set[str] = set()
+    if args.retry_failed or args.retry_blocked:
+        explicitly_retried_ids = {
+            str(entry["artifact_id"])
+            for entry in choose_entries(
+                plan,
+                progress,
+                args.limit,
+                workers=args.workers,
+                retry_failed=args.retry_failed,
+                retry_blocked=args.retry_blocked,
+                artifact_ids=args.artifact_id,
+                collision_confirmations=collision_confirmations,
+            )
+        }
     if not args.dry_run:
         unique_block_recovered, unique_block_recovery_errors = (
             reconcile_unique_inventory_blocks(plan, progress, args=args)
@@ -3198,7 +3976,21 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         )
         if staging_recovered:
             progress = load_json(args.progress)
-        reconciled = reconcile_existing(plan, progress, args=args)
+        if security_redaction_ids:
+            security_redacted, security_redaction_errors = sanitize_security_blocks(
+                plan,
+                progress,
+                args=args,
+                artifact_ids=security_redaction_ids,
+            )
+            if security_redacted:
+                progress = load_json(args.progress)
+        reconciled = reconcile_existing(
+            plan,
+            progress,
+            args=args,
+            explicitly_retried_ids=explicitly_retried_ids,
+        )
         if reconciled:
             progress = load_json(args.progress)
     if args.recover_existing_only:
@@ -3241,16 +4033,41 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     deferred_collisions = deferred_collision_entries(
         plan, progress, confirmed_ids=set(collision_confirmations)
     )
-    selected = choose_entries(
-        plan,
-        progress,
-        args.limit,
-        workers=args.workers,
-        retry_failed=args.retry_failed,
-        retry_blocked=args.retry_blocked,
-        artifact_ids=args.artifact_id,
-        collision_confirmations=collision_confirmations,
-    )
+    selection_artifact_ids = list(args.artifact_id or [])
+    if not args.dry_run and security_redaction_ids:
+        selection_artifact_ids = [
+            artifact_id
+            for artifact_id in selection_artifact_ids
+            if artifact_id not in set(security_redaction_ids)
+        ]
+    if (args.retry_failed or args.retry_blocked) and not selection_artifact_ids:
+        selected = []
+    else:
+        selected = choose_entries(
+            plan,
+            progress,
+            args.limit,
+            workers=args.workers,
+            retry_failed=args.retry_failed,
+            retry_blocked=args.retry_blocked,
+            artifact_ids=selection_artifact_ids,
+            collision_confirmations=collision_confirmations,
+        )
+    retry_source_bound_ids: list[str] = []
+    if args.retry_failed and selected:
+        selected, retry_source_bound_ids = bind_retry_failed_source_evidence(
+            selected,
+            progress,
+            progress_path=args.progress,
+        )
+    empty_source_bound_ids: list[str] = []
+    if args.retry_blocked and empty_source_ids and selected:
+        selected, empty_source_bound_ids = bind_retry_blocked_empty_source_evidence(
+            selected,
+            progress,
+            output_root=args.output_root,
+            allowed_artifact_ids=set(empty_source_ids),
+        )
     if not selected:
         refreshed_progress = load_json(args.progress)
         if args.progress_mirror and not args.dry_run:
@@ -3262,7 +4079,15 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             )
         payload = {
             "schema_version": 1,
-            "status": "collision_confirmation_required" if deferred_collisions else "nothing_to_do",
+            "status": (
+                "partial"
+                if security_redaction_errors
+                else "completed"
+                if security_redacted
+                else "collision_confirmation_required"
+                if deferred_collisions
+                else "nothing_to_do"
+            ),
             "selected": 0,
             "deferred_collision_count": len(deferred_collisions),
             "authorized_collision_count": len(collision_confirmations),
@@ -3276,6 +4101,9 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             "confirmed_block_recovery_errors": confirmed_block_recovery_errors,
             "staging_recovered": staging_recovered,
             "staging_recovery_errors": staging_recovery_errors,
+            "security_redaction_preview": security_redaction_preview,
+            "security_redacted": security_redacted,
+            "security_redaction_errors": security_redaction_errors,
         }
         payload["receipt_file"] = str(write_receipt(args.receipt_dir, payload))
         return payload
@@ -3286,6 +4114,11 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             "workers": args.workers,
             "concurrency_proof": str(args.concurrency_proof) if proof else None,
             "selected": len(selected),
+            "retry_source_binding_count": len(retry_source_bound_ids),
+            "retry_source_bound_artifact_ids": retry_source_bound_ids,
+            "empty_source_binding_count": len(empty_source_bound_ids),
+            "empty_source_bound_artifact_ids": empty_source_bound_ids,
+            "security_redaction_preview": security_redaction_preview,
             "deferred_collision_count": len(deferred_collisions),
             "authorized_collision_count": len(collision_confirmations),
             "legacy_flat_download_review": legacy_review,
@@ -3423,6 +4256,13 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         "completed_count": len(completed),
         "blocked_count": len(blocked),
         "pending_count": len(pending),
+        "retry_source_binding_count": len(retry_source_bound_ids),
+        "retry_source_bound_artifact_ids": retry_source_bound_ids,
+        "empty_source_binding_count": len(empty_source_bound_ids),
+        "empty_source_bound_artifact_ids": empty_source_bound_ids,
+        "security_redaction_preview": security_redaction_preview,
+        "security_redacted": security_redacted,
+        "security_redaction_errors": security_redaction_errors,
         "workers": args.workers,
         "concurrency_proof": str(args.concurrency_proof) if proof else None,
         "browser_receipt": browser_receipt,
@@ -3486,6 +4326,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="One exact current-plan artifact id; required with --retry-failed and repeatable.",
     )
+    parser.add_argument(
+        "--allow-verified-empty-source",
+        action="append",
+        default=[],
+        help=(
+            "One exact blocked artifact id whose audited source URL and live editor "
+            "must both prove a zero-shape canvas; requires --retry-blocked and the "
+            "same --artifact-id."
+        ),
+    )
+    parser.add_argument(
+        "--redact-security-block",
+        action="append",
+        default=[],
+        help=(
+            "One exact security-blocked VSDX artifact id to archive as a same-format "
+            "sanitized derivative while retaining the original in restricted quarantine; "
+            "requires --retry-blocked and the same --artifact-id."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--recover-existing-only",
@@ -3511,6 +4371,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--settle-ms must be within 0..30000")
     if args.dry_run and args.recover_existing_only:
         parser.error("--dry-run and --recover-existing-only are mutually exclusive")
+    if args.redact_security_block and args.recover_existing_only:
+        parser.error(
+            "--redact-security-block and --recover-existing-only are mutually exclusive"
+        )
     try:
         args.profile_dir = validate_profile_dir(args.profile_dir)
         settings = load_settings(

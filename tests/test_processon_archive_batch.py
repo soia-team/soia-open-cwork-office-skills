@@ -212,6 +212,251 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
         )
         self.assertEqual([item["artifact_id"] for item in selected], ["blocked"])
 
+    def test_reconciliation_skips_unselected_terminal_states(self):
+        progress = {
+            "completed": [{"artifact_id": "completed"}],
+            "failed": [{"artifact_id": "failed"}],
+            "blocked": [{"artifact_id": "blocked"}],
+        }
+        skipped = MODULE.reconciliation_skip_ids(
+            progress, explicitly_retried_ids={"failed"}
+        )
+        self.assertEqual(skipped, {"completed", "blocked"})
+
+    def test_reconciliation_never_reopens_completed_state(self):
+        progress = {
+            "completed": [{"artifact_id": "completed"}],
+            "failed": [],
+            "blocked": [],
+        }
+        skipped = MODULE.reconciliation_skip_ids(
+            progress, explicitly_retried_ids={"completed"}
+        )
+        self.assertEqual(skipped, {"completed"})
+
+    def test_recreated_move_source_is_quarantined_inside_private_run_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_id = "artifact"
+            download_dir = root / "managed" / "run"
+            source = download_dir / artifact_id / "document.pos"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"new retry export")
+            progress = root / "run" / "artifacts" / "download-progress.json"
+            progress.parent.mkdir(parents=True)
+            result = MODULE.quarantine_recreated_move_source(
+                source,
+                artifact_id=artifact_id,
+                archived_sha256=MODULE.hashlib.sha256(b"archived export").hexdigest(),
+                manifest={"operation": "move"},
+                args=argparse.Namespace(download_dir=download_dir, progress=progress),
+            )
+            self.assertIsNotNone(result)
+            self.assertFalse(source.exists())
+            quarantine = Path(result["quarantine_path"])
+            self.assertTrue(quarantine.is_file())
+            self.assertEqual(quarantine.read_bytes(), b"new retry export")
+            self.assertEqual(
+                quarantine.parent,
+                progress.parent / "retry-residuals" / artifact_id,
+            )
+
+    def test_recreated_move_source_outside_artifact_staging_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "outside" / "document.pos"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"changed")
+            with self.assertRaisesRegex(MODULE.BatchError, "outside the artifact staging"):
+                MODULE.quarantine_recreated_move_source(
+                    source,
+                    artifact_id="artifact",
+                    archived_sha256=MODULE.hashlib.sha256(b"archived").hexdigest(),
+                    manifest={"operation": "move"},
+                    args=argparse.Namespace(
+                        download_dir=root / "managed" / "run",
+                        progress=root / "run" / "artifacts" / "download-progress.json",
+                    ),
+                )
+
+    def test_empty_source_retry_recovers_exact_audited_quarantine_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            entry = self.entry("empty")
+            metadata = root / "_quarantine" / "run" / "empty" / "metadata.yml"
+            metadata.parent.mkdir(parents=True)
+            metadata.write_text(
+                "\n".join(
+                    [
+                        'artifact_id: "empty"',
+                        'source_path: "root/folder/empty"',
+                        'source_url: "https://www.processon.com/diagraming/remote-empty"',
+                        'remote_id: "remote-empty"',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            blocked = {
+                "artifact_id": "empty",
+                "reason": "editor snapshot shows an empty canvas",
+                "revalidation": {
+                    "quarantine_files": [
+                        {
+                            "quarantine_path": str(metadata),
+                            "bytes": metadata.stat().st_size,
+                            "sha256": MODULE.sha256(metadata),
+                        }
+                    ]
+                },
+            }
+            recovered = MODULE.retry_blocked_empty_source_binding_from_evidence(
+                entry,
+                blocked,
+                output_root=root,
+            )
+            self.assertEqual(
+                recovered["source_url"],
+                "https://www.processon.com/diagraming/remote-empty",
+            )
+            self.assertEqual(recovered["remote_id"], "remote-empty")
+
+    def test_empty_source_promotion_requires_live_zero_text_export(self):
+        entry = self.entry("empty")
+        inspection = {
+            "kind": "visio-vsdx",
+            "text_count": 0,
+            "semantic_status": "source_binding_missing",
+        }
+        promoted = MODULE.apply_observed_source_binding(
+            inspection,
+            browser_result={
+                "source_url": "https://www.processon.com/diagraming/remote-empty",
+                "remote_id": "remote-empty",
+                "empty_source_confirmed": True,
+            },
+            entry=entry,
+        )
+        self.assertEqual(promoted["content_semantic_status"], "empty_source_confirmed")
+        self.assertEqual(
+            promoted["semantic_match_method"],
+            "live_editor_empty_canvas_and_observed_remote_id",
+        )
+        self.assertTrue(MODULE.visible_editor_confirms_empty_canvas("图形：0"))
+        self.assertFalse(MODULE.visible_editor_confirms_empty_canvas("图形：1"))
+
+    def test_live_empty_canvas_waits_for_rendered_shape_counter(self):
+        class Page:
+            def __init__(self):
+                self.values = iter(("loading", "图形：0"))
+
+            def locator(self, selector):
+                self.assert_selector = selector
+                return self
+
+            async def inner_text(self, *, timeout):
+                self.assert_timeout = timeout
+                return next(self.values)
+
+            async def wait_for_timeout(self, _milliseconds):
+                return None
+
+        page = Page()
+        asyncio.run(MODULE.wait_for_live_empty_canvas(page, 1000))
+        self.assertEqual(page.assert_selector, "body")
+
+    def test_failed_retry_recovers_one_audited_source_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            progress_path = root / "artifacts" / "download-progress.json"
+            evidence = root / "artifacts" / "evidence" / "case" / "receipt.json"
+            evidence.parent.mkdir(parents=True)
+            entry = self.entry("a")
+            entry["title"] = "same"
+            entry["source_path"] = "root/folder/same"
+            receipt = {
+                "schema_version": 1,
+                "pending": [
+                    {
+                        "artifact_id": "a",
+                        "title": "same",
+                        "source_path": "root/folder/same",
+                        "source_url": "https://www.processon.com/diagraming/remote-a",
+                    }
+                ],
+            }
+            evidence.write_text(json.dumps(receipt), encoding="utf-8")
+            progress = {
+                "failed": [
+                    {
+                        "artifact_id": "a",
+                        "evidence_files": [
+                            {
+                                "archived_path": str(evidence),
+                                "bytes": evidence.stat().st_size,
+                                "sha256": MODULE.sha256(evidence),
+                            }
+                        ],
+                    }
+                ]
+            }
+
+            selected, bound_ids = MODULE.bind_retry_failed_source_evidence(
+                [entry],
+                progress,
+                progress_path=progress_path,
+            )
+
+            self.assertEqual(bound_ids, ["a"])
+            self.assertEqual(selected[0]["remote_id"], "remote-a")
+            self.assertEqual(
+                selected[0]["_direct_source_url"],
+                "https://www.processon.com/diagraming/remote-a",
+            )
+            self.assertEqual(
+                selected[0]["_source_lookup_method"],
+                "audited_failed_receipt_source_url",
+            )
+
+    def test_failed_retry_rejects_source_route_for_wrong_document_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            progress_path = root / "artifacts" / "download-progress.json"
+            evidence = root / "artifacts" / "evidence" / "case" / "receipt.json"
+            evidence.parent.mkdir(parents=True)
+            entry = self.entry("a")
+            entry["title"] = "same"
+            entry["source_path"] = "root/folder/same"
+            receipt = {
+                "schema_version": 1,
+                "pending": [
+                    {
+                        "artifact_id": "a",
+                        "title": "same",
+                        "source_path": "root/folder/same",
+                        "source_url": "https://www.processon.com/mindmap/remote-a",
+                    }
+                ],
+            }
+            evidence.write_text(json.dumps(receipt), encoding="utf-8")
+            failed = {
+                "artifact_id": "a",
+                "evidence_files": [
+                    {
+                        "archived_path": str(evidence),
+                        "bytes": evidence.stat().st_size,
+                        "sha256": MODULE.sha256(evidence),
+                    }
+                ],
+            }
+
+            with self.assertRaisesRegex(MODULE.BatchError, "route differs"):
+                MODULE.retry_failed_source_binding_from_evidence(
+                    entry,
+                    failed,
+                    progress_path=progress_path,
+                )
+
     def test_collision_confirmation_is_plan_bound_ordered_and_single_worker(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -717,6 +962,38 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
             self.assertIn("aws_presigned_url_parameter=2", message)
             self.assertNotIn("opaque-value", message)
             self.assertNotIn("opaque-signature", message)
+
+    def test_vsdx_security_redaction_preserves_original_and_passes_rescan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.vsdx"
+            destination = root / "sanitized.vsdx"
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("visio/document.xml", "<VisioDocument />")
+                archive.writestr(
+                    "visio/pages/page1.xml",
+                    "<PageContents><Shapes><Shape><Text>MongoDB使用关系图 密码：private-one</Text></Shape>"
+                    "<Shape><Text>password=private-two</Text></Shape>"
+                    "<Shape><Text>https://object.example/file?X-Amz-Credential=private-three&amp;"
+                    "X-Amz-Signature=private-four</Text></Shape></Shapes></PageContents>",
+                )
+            original_sha = MODULE.sha256(source)
+            report = MODULE.sanitize_vsdx_sensitive_text(source, destination)
+            self.assertEqual(MODULE.sha256(source), original_sha)
+            self.assertEqual(report["status"], "sanitized_derivative")
+            self.assertEqual(
+                report["redaction_counts"],
+                {
+                    "chinese_password_assignment": 1,
+                    "english_password_assignment": 1,
+                    "aws_presigned_url_parameter": 2,
+                },
+            )
+            inspected = MODULE.inspect_vsdx(destination, "MongoDB使用关系图")
+            self.assertEqual(inspected["semantic_status"], "matched")
+            sanitized_bytes = destination.read_bytes()
+            for secret in (b"private-one", b"private-two", b"private-three", b"private-four"):
+                self.assertNotIn(secret, sanitized_bytes)
 
     def test_dotted_release_number_separates_chinese_title_signals(self):
         self.assertEqual(
