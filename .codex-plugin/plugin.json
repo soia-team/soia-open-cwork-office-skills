@@ -19,5 +19,6 @@
     "defaultPrompt": [
       "请整理并同步这批办公文档与协作图表。"
     ]
-  }
+  },
+  "homepage": "https://github.com/soia-team/soia-open-cwork-office-skills"
 }
