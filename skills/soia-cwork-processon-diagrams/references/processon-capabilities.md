@@ -76,6 +76,6 @@ ProcessOn 官方 [API 服务平台](https://www.processon.com/toolservice) 面�
 
 ## 2026-07-21 账号菜单实测
 
-在团队空间的流程图文件菜单中实际看到：`PNG`、`JPG`、`POS文件`、`VISIO文件 beta`、`高清PDF`、`SVG`、`导出全部画布 (.posf)`、`导出全部画布 (.vsdx)`、`高清PNG`。在思维导图文件菜单中实际看到：`PNG`、`JPG`、`POS文件`、`Xmind文件`、`Freemind文件 (.mm)`、`Word (.docx)`、`Excel (.csv)`、`PPT`、`高清PDF`、`SVG`、`高清PNG`、`导出全部画布 (.posm)`。这是特定账号/文件类型的可见证据，不推断所有账号都具备相同权益；其中带 VIP 标记的格式仍可能在下载时受会员权益限制。
+在团队空间的流程图文件菜单中实际看到：`PNG`、`JPG`、`POS文件`、`VISIO文件 beta`、`高清PDF`、`SVG`、`导出全部画布 (.posf)`、`导出全部画布 (.vsdx)`、`高清PNG`。在思维导图文件菜单中实际看到：`PNG`、`JPG`、`POS文件`、`Xmind文件`（编辑器当前也可能显示为 `XMind文件`）、`Freemind文件 (.mm)`、`Word (.docx)`、`Excel (.csv)`、`PPT`、`高清PDF`、`SVG`、`高清PNG`、`导出全部画布 (.posm)`。这是特定账号/文件类型的可见证据，不推断所有账号都具备相同权益；其中带 VIP 标记的格式仍可能在下载时受会员权益限制。
 
 默认策略：流程图先选 `导出全部画布 (.vsdx)` 避免遗漏多画布，该项不可见时兼容 `VISIO文件` / `VISIO文件 beta`；思维导图选 `Xmind文件`。两类都建议同时保留 POS/POSF/POSM。若默认格式缺失、会员/权限阻断或内容校验失败，回退 POS 并报告原因。列表页无产物时可进入官方编辑器重试；若 XMind、POS、POSM 均静默无产物而 Markdown 可下载，只能据此证明下载通道正常，并将原生归档标为可重试阻断，不能用 Markdown 代替。无法确认图表类型时加入待人工确认队列，由客户和 Agent 一起确认后再下载，不依据颜色或单一图标盲猜。

@@ -153,6 +153,14 @@ SEMANTIC_CONTROL_SELECTORS = {
         "[title='Xmind文件']",
         "[data-title='Xmind文件']",
         "[data-tooltip='Xmind文件']",
+        # The current mindmap editor renders this provider label as
+        # ``XMind文件`` (capital M), while list/export views historically
+        # used ``Xmind文件``.  Keep the variant in the fixed provider
+        # allowlist; never accept a caller-supplied selector.
+        "[aria-label='XMind文件']",
+        "[title='XMind文件']",
+        "[data-title='XMind文件']",
+        "[data-tooltip='XMind文件']",
     ),
     "POS文件": (
         "[aria-label='POS文件']",
@@ -160,6 +168,12 @@ SEMANTIC_CONTROL_SELECTORS = {
         "[data-title='POS文件']",
         "[data-tooltip='POS文件']",
     ),
+}
+
+SEMANTIC_TEXT_VARIANTS = {
+    # Closed provider-label compatibility, intentionally not a
+    # case-insensitive match: diagram titles must not become controls.
+    "Xmind文件": ("XMind文件",),
 }
 
 
@@ -1446,6 +1460,8 @@ def semantic_control_locators(page: Any, label: str) -> list[Any]:
     """
 
     locators = [page.get_by_text(label, exact=True).filter(visible=True).nth(0)]
+    for variant in SEMANTIC_TEXT_VARIANTS.get(label, ()):
+        locators.append(page.get_by_text(variant, exact=True).filter(visible=True).nth(0))
     for selector in SEMANTIC_CONTROL_SELECTORS.get(label, ()):
         try:
             locators.append(page.locator(selector).filter(visible=True).nth(0))
@@ -2889,14 +2905,37 @@ def inspect_xmind(path: Path, title: str) -> dict[str, Any]:
         content = json.loads(archive.read("content.json"))
     if not isinstance(content, list) or not content:
         raise BatchError("XMind content.json has no sheets")
-    root_title = xmind_topic_title(content[0].get("rootTopic"))
+    sheet = content[0]
+    root = sheet.get("rootTopic")
+    root_title = xmind_topic_title(root)
+    empty_root = False
     if root_title != title:
-        raise BatchError(f"XMind root title mismatch: expected {title!r}, got {root_title!r}")
+        # ProcessOn exports a genuinely blank mindmap with the source title
+        # on the sheet but no root-topic title.  Accept that shape only when
+        # the sheet title is an exact match and the root has no attached
+        # children; never weaken the normal title binding for non-empty maps.
+        attached = (
+            root.get("children", {}).get("attached", [])
+            if isinstance(root, dict) and isinstance(root.get("children"), dict)
+            else None
+        )
+        if not (
+            root_title == ""
+            and str(sheet.get("title") or "") == title
+            and isinstance(attached, list)
+            and not attached
+        ):
+            raise BatchError(
+                f"XMind root title mismatch: expected {title!r}, got {root_title!r}"
+            )
+        empty_root = True
     return {
         "kind": "xmind",
         "package_source": "content.json",
         "root_title": root_title,
-        "semantic_status": "matched",
+        "sheet_title": str(sheet.get("title") or ""),
+        "empty_root": empty_root,
+        "semantic_status": "matched_empty_root" if empty_root else "matched",
     }
 
 
