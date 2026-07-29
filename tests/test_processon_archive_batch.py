@@ -148,6 +148,8 @@ class DelayedEditorLocator(MenuLocator):
             return self.page.file_clicked
         if self.label == "Xmind文件":
             return self.page.direct_mindmap_export
+        if self.label == "XMind文件":
+            return self.page.direct_mindmap_export_variant
         return False
 
     async def count(self):
@@ -166,11 +168,13 @@ class DelayedEditorPage:
         file_visible_after=0,
         has_file=True,
         direct_mindmap_export=False,
+        direct_mindmap_export_variant=False,
         attribute_only_labels=(),
     ):
         self.file_visible_after = file_visible_after
         self.has_file = has_file
         self.direct_mindmap_export = direct_mindmap_export
+        self.direct_mindmap_export_variant = direct_mindmap_export_variant
         self.attribute_only_labels = set(attribute_only_labels)
         self.waits = 0
         self.file_clicked = False
@@ -801,6 +805,27 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
         self.assertEqual(label, "Xmind文件")
         self.assertEqual([label for label, _timeout in page.clicked], ["导出为"])
 
+    def test_mindmap_editor_accepts_current_provider_xmind_capitalization(self):
+        page = DelayedEditorPage(
+            has_file=False,
+            direct_mindmap_export=True,
+            direct_mindmap_export_variant=True,
+        )
+        entry = self.entry("mindmap-xmind-capital-m")
+        entry.update(
+            {
+                "type": "mindmap",
+                "primary_format": "xmind",
+                "primary_menu": "Xmind文件",
+            }
+        )
+        label, _locator = asyncio.run(
+            MODULE.open_editor_export_menu(page, entry, timeout_ms=100)
+        )
+        # Keep the canonical plan label in the receipt while matching the
+        # provider's current visible ``XMind文件`` spelling.
+        self.assertEqual(label, "Xmind文件")
+
     def test_mindmap_download_menu_uses_plan_authorized_pos_fallback(self):
         entry = self.entry("mindmap-pos")
         entry.update(
@@ -849,6 +874,27 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
         self.assertEqual(inspection["kind"], "processon-pos")
         self.assertEqual(inspection["semantic_status"], "matched")
         self.assertEqual(inspection["title"], "业务流程")
+
+    def test_xmind_accepts_verified_blank_sheet_title_without_root_topic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "未命名文件.xmind"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr(
+                    "content.json",
+                    json.dumps(
+                        [
+                            {
+                                "title": "未命名文件",
+                                "rootTopic": {"children": {"attached": []}},
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
+                )
+            inspected = MODULE.inspect_xmind(path, "未命名文件")
+        self.assertEqual(inspected["semantic_status"], "matched_empty_root")
+        self.assertTrue(inspected["empty_root"])
+        self.assertEqual(inspected["sheet_title"], "未命名文件")
 
     def test_provider_filename_binding_accepts_url_style_space_encoding(self):
         self.assertTrue(
