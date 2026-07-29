@@ -49,6 +49,15 @@ All three need a platform login or app authorization first; each checks and repo
 | `soia-cwork-feishu-doc-git-sync` | Synchronize Feishu wikis or cloud documents to local Markdown while preserving structure and source metadata. | 🟡 |
 | `soia-cwork-processon-diagrams` | Inventory ProcessOn folders and export, verify, and archive authorized diagrams safely. | 🟡 |
 
+## Trigger phrases
+
+Once installed, just speak naturally — the agent routes to a skill by these phrases (the full trigger list lives in each skill's `SKILL.md` `description`):
+
+| You say | Skill |
+|---|---|
+| `调研飞书知识库` / `读取飞书云盘` / `配置飞书 CLI` | `soia-cwork-feishu-cli` |
+| `ProcessOn 盘点` / `导出架构图` / `批量下载图表` | `soia-cwork-processon-diagrams` |
+
 ## Install
 
 Installing the whole domain plugin is recommended — it brings every skill in this repo:
@@ -75,6 +84,19 @@ twice and the two copies drift apart — pick one:
 ```bash
 npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s <skill-name> -y
 ```
+
+## Validate & contribute
+
+After changing a skill, run before committing:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 scripts/generate_skill_catalog.py --check
+python3 scripts/audit_skills.py --strict
+```
+
+Contribution flow, the skill contract, and release steps are in the portal's
+[CONTRIBUTING.md](https://github.com/soia-team/soia-open-skills/blob/main/CONTRIBUTING.md).
 
 ## Ecosystem
 

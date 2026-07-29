@@ -49,6 +49,15 @@ ProcessOn 图表       →  本地图表源文件（盘点 → 授权 → 导出
 | `soia-cwork-feishu-doc-git-sync` | 将飞书知识库或云文档以应用身份只读同步为本地 Markdown，保留目录、来源和同步元数据，并可接入 Git、Obsidian 与 VitePress。 | 🟡 |
 | `soia-cwork-processon-diagrams` | 安全盘点并按授权导出、校验和归档 ProcessOn 图表。 | 🟡 |
 
+## 触发词映射
+
+装完直接用自然语言说话即可，Agent 按下表触发对应技能（完整触发词见各技能 `SKILL.md` 的 `description`）：
+
+| 你说 | 触发技能 |
+|---|---|
+| `调研飞书知识库` / `读取飞书云盘` / `配置飞书 CLI` | `soia-cwork-feishu-cli` |
+| `ProcessOn 盘点` / `导出架构图` / `批量下载图表` | `soia-cwork-processon-diagrams` |
+
 ## 安装
 
 推荐装整个领域插件，一次装好本仓全部技能：
@@ -74,6 +83,19 @@ codex plugin add soia-cwork-office@soia
 ```bash
 npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s <技能名> -y
 ```
+
+## 验证与贡献
+
+改动技能后，提交前跑：
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 scripts/generate_skill_catalog.py --check
+python3 scripts/audit_skills.py --strict
+```
+
+贡献流程、技能契约与发布步骤见元仓
+[CONTRIBUTING.md](https://github.com/soia-team/soia-open-skills/blob/main/CONTRIBUTING.md)。
 
 ## 生态导航
 
