@@ -184,7 +184,13 @@ python3 scripts/processon_archive_supervisor.py \
 
 `--max-batches` 是显式安全上限，默认不提供，避免把远端失败无限放大。只有批次回执中的某条 pending 同时具有有效 artifact_id 和精确错误 `BatchError: no visible ProcessOn download menu matched: Xmind文件` 时，监督器才会用这份 immutable receipt 将该条写成 `failed`。其他 pending、碰撞、非 JSON 输出、audit 失败、结构/来源绑定失败都会立即停止，留待诊断；不会根据标题或 Downloads 里的同名文件猜测归档结果。
 
-若已失败条目出现了新的、可复现的路线（例如编辑器菜单结构已被单文件只读快照确认），批处理仍不得扫回全部失败项。必须先 dry-run，再以 `--retry-failed` 和重复的精确 `--artifact-id` 白名单启动；脚本拒绝空白名单、重复 ID、非计划 ID、非 `failed` 状态、`blocked` 或 collision-risk 项。成功时由 `record` 原子替换该条失败状态；失败则保留新的不可变 batch receipt，随后再由状态脚本按证据更新原因。
+若已失败条目出现了新的、可复现的路线（例如编辑器菜单结构已被单文件只读快照确认），批处理仍不得扫回全部失败项。必须先 dry-run，再以 `--retry-failed` 和重复的精确 `--artifact-id` 白名单启动；脚本拒绝空白名单、重复 ID、非计划 ID、非 `failed` 状态、`blocked` 或 collision-risk 项。重名文件只允许从运行包私有 evidence 中、经大小和 SHA-256 复核的历史 batch receipt 恢复唯一 `source_url/remote_id`，不得回退为按标题猜测。成功时由 `record` 原子替换该条失败状态；失败则保留新的不可变 batch receipt，随后再由状态脚本按证据更新原因。若 finalizer 已完成 move、但 record 前中断，显式重试可对 metadata/manifest 一致的半提交做幂等恢复；同一路径后来出现的新导出残留必须移入运行包私有 `retry-residuals`，不能冒充原下载源。
+
+已阻断条目只在原阻断条件已经消失且新验证路线可复现时使用 `--retry-blocked`；仍须逐个提供 `--artifact-id`，且与 `--retry-failed` 互斥。安全隔离、空画布、unknown 和 collision-risk 不会因普通重跑自动放行。空画布只有在隔离 metadata 唯一绑定源 URL、当前编辑器实时显示 `图形：0`、新导出 VSDX 仍为零文本有效空包时，才可同时传入 `--allow-verified-empty-source <artifact_id>`，并以 `empty_source_confirmed` 归档。安全隔离项只有在原件证据 SHA 未变时，才可同时传入 `--redact-security-block <artifact_id>` 生成同格式脱敏副本；原件不离开隔离区。宿主异常发生在 `download.save_as()` 之后时，可用 `--recover-existing-only` 只恢复带有效 staging receipt 的文件；该模式不访问 ProcessOn、不发起新下载，也不接受 `--dry-run`。
+
+计划内同名碰撞使用 `prepare_processon_collision_confirmation.py --confirm-inventory-order` 生成与当前 plan SHA-256 绑定的私有确认文件，再以 `--collision-confirmation`、`--workers 1` 专用批次执行。确认 loader 会复核目录、标题、type、owner、remote update、计划顺序和组大小。它不能授权计划外的新同名项，也不能把 live search 中仍有多个候选的普通条目强行映射到旧 artifact。
+
+计划中的 unknown 使用 `inspect_processon_unknown_types.py` 观察技能内固定的 ProcessOn 文件行图标。观察结果只写入私有 state；同名行、目录漂移、无图标或同时出现多类图标时保持 unknown，由客户和 Agent 一起确认，不能自动修改计划或进度。
 
 覆盖属于高影响动作，必须由客户在当前请求中明确授权并同时传入：
 
