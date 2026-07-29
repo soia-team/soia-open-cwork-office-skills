@@ -1,6 +1,6 @@
 {
   "name": "soia-cwork-office",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "办公协作技能：飞书知识库与云盘、ProcessOn 图表",
   "author": {
     "name": "soia-team"
@@ -22,7 +22,7 @@
     "websiteURL": "https://github.com/soia-team/soia-open-cwork-office-skills",
     "composerIcon": "./assets/icon.svg",
     "logo": "./assets/icon.png",
-    "brandColor": "#38BDF8"
+    "brandColor": "#3B82F6"
   },
   "homepage": "https://github.com/soia-team/soia-open-cwork-office-skills"
 }
