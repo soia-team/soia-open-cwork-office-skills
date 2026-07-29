@@ -1091,10 +1091,12 @@ async def find_title(
                 if not await title_nodes.count():
                     continue
                 if document_type == "flowchart":
-                    if not any(
-                        await row.locator(selector).count()
-                        for selector in FLOWCHART_ICON_SELECTORS
-                    ):
+                    flowchart_icon_found = False
+                    for selector in FLOWCHART_ICON_SELECTORS:
+                        if await row.locator(selector).count():
+                            flowchart_icon_found = True
+                            break
+                    if not flowchart_icon_found:
                         continue
                 elif document_type == "mindmap":
                     if not await row.locator(".icon-a-siweidaotu1_huaban1").count():

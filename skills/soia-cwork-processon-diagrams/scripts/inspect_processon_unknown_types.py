@@ -57,9 +57,11 @@ async def observe_type(page: Any, entry: dict[str, Any], timeout_ms: int) -> str
     )
     if await row.count() != 1:
         raise BatchError(f"unknown type row is unavailable: {title!r}")
-    flowchart = any(
-        await row.locator(selector).count() for selector in FLOWCHART_ICON_SELECTORS
-    )
+    flowchart = False
+    for selector in FLOWCHART_ICON_SELECTORS:
+        if await row.locator(selector).count():
+            flowchart = True
+            break
     mindmap = bool(await row.locator(".icon-a-siweidaotu1_huaban1").count())
     if flowchart == mindmap:
         raise BatchError(f"unknown type row has ambiguous provider icons: {title!r}")

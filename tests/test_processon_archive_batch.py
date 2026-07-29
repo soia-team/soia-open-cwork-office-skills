@@ -105,6 +105,29 @@ class ExactTitlePage:
         return self.rows
 
 
+class FlowchartIconLocator:
+    def __init__(self, present):
+        self.present = present
+
+    async def count(self):
+        return 1 if self.present else 0
+
+
+class FlowchartTitleRow(ExactTitleRow):
+    def locator(self, selector):
+        return FlowchartIconLocator(selector == ".icon-a-222_huaban1")
+
+
+class FlowchartTitleRows(ExactTitleRows):
+    def __init__(self):
+        self.rows = [FlowchartTitleRow(0)]
+
+
+class FlowchartTitlePage(ExactTitlePage):
+    def __init__(self):
+        self.rows = FlowchartTitleRows()
+
+
 class DelayedEditorLocator(MenuLocator):
     def __init__(self, page, label, visible):
         super().__init__(visible)
@@ -542,6 +565,17 @@ class ProcessOnArchiveBatchTests(unittest.TestCase):
             )
         )
         self.assertEqual(selected.index, 1)
+
+    def test_current_red_flowchart_icon_is_async_safe(self):
+        selected = asyncio.run(
+            MODULE.find_title(
+                FlowchartTitlePage(),
+                "same",
+                100,
+                document_type="flowchart",
+            )
+        )
+        self.assertEqual(selected.index, 0)
 
     def test_confirmed_collision_can_select_from_current_superset(self):
         selected = asyncio.run(
