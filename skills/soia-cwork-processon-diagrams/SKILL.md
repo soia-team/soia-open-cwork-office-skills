@@ -1,9 +1,9 @@
 ---
 name: soia-cwork-processon-diagrams
 description: 安全盘点并按授权导出、校验和归档 ProcessOn 图表。触发：ProcessOn 盘点、导出架构图、批量下载图表
-version: 1.14.0
+version: 1.15.0
 created_at: 2026-07-20 18:57:53
-updated_at: 2026-07-29 14:37:24
+updated_at: 2026-07-29 15:31:00
 created_by: gpt-5.6-sol
 updated_by: gpt-5.6-sol
 dependencies:
@@ -68,6 +68,7 @@ dependencies:
 - 编辑器导出入口迟到或缺失时，回执必须包含受限的 `editor_export_controls_unavailable` 诊断；VSDX 包结构合格但无法完成内容来源绑定时，只能进入私有 blocked evidence，不能写入最终知识库目录或计入完成数。
 - 正常完成与异常退出都必须返回关闭回执；错误 JSON 缺少 `receipt` 时只能报告“清理未验证”，不得继续下一份。ProcessOn 同一标题可能有多个 DOM 节点，`wait_text` 必须用显式 `nth` 消除 strict 歧义。
 - 快照除原生 button/link/role 外还要读取 `title`、`aria-label`、`data-title`、`data-tooltip` 标注的非按钮图标；不得因为工具栏用 span/div 实现就回退到固定坐标。
+- 当前 ProcessOn 流程图行同时存在旧版 `.icon-a-444_huaban1` 与新版红色 UI `.icon-a-222_huaban1` 标记；两者都必须通过异步安全的固定白名单检测，不能用同步生成器表达式。
 - 无语义图标只能先用固定的只读 `inspect_text` 检查标题行祖先与直接子节点；action 文件不得传入 JavaScript，检查结果只用于实现受约束的 provider 动作，不能开放任意 CSS 点击。
 - ProcessOn 文件行的“更多”只能用 provider-scoped `row_menu`：按可见标题定位最近的 `file_list_item`，再点击经真实 DOM 验证的同行菜单触发器；通用 action 文件仍不能传 CSS。文本动作默认过滤隐藏重复节点后再应用 `nth`。
 - `status`、`snapshot` 和 `run` 在初始导航后必须等待有上限的 SPA settle（默认 2000ms）；空快照只能报告“页面未渲染/待复核”，不得据此生成点击动作。
