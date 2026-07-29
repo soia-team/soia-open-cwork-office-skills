@@ -29,6 +29,12 @@ from processon_browser_runner import (
 )
 
 
+# ProcessOn currently renders classic flowcharts with either the legacy
+# ``444`` icon or the newer red UI/flowchart ``222`` icon.  Both are fixed
+# provider-owned row markers; keep the selector bounded and explicit.
+FLOWCHART_ICON_SELECTORS = (".icon-a-444_huaban1", ".icon-a-222_huaban1")
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -51,7 +57,9 @@ async def observe_type(page: Any, entry: dict[str, Any], timeout_ms: int) -> str
     )
     if await row.count() != 1:
         raise BatchError(f"unknown type row is unavailable: {title!r}")
-    flowchart = bool(await row.locator(".icon-a-444_huaban1").count())
+    flowchart = any(
+        await row.locator(selector).count() for selector in FLOWCHART_ICON_SELECTORS
+    )
     mindmap = bool(await row.locator(".icon-a-siweidaotu1_huaban1").count())
     if flowchart == mindmap:
         raise BatchError(f"unknown type row has ambiguous provider icons: {title!r}")

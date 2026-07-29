@@ -48,6 +48,10 @@ FINALIZER = SCRIPT_DIR / "finalize_processon_download.py"
 MAX_WORKERS = 3
 MAX_BATCH = 60
 READY_ATTEMPTS = 2
+# Fixed provider row markers accepted for flowcharts.  ``222`` is the newer
+# red UI/flowchart marker observed in ProcessOn's current team list; ``444``
+# remains the legacy blue flowchart marker.
+FLOWCHART_ICON_SELECTORS = (".icon-a-444_huaban1", ".icon-a-222_huaban1")
 MAX_ZIP_ENTRIES = 10_000
 MAX_ZIP_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_ZIP_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
@@ -1087,7 +1091,10 @@ async def find_title(
                 if not await title_nodes.count():
                     continue
                 if document_type == "flowchart":
-                    if not await row.locator(".icon-a-444_huaban1").count():
+                    if not any(
+                        await row.locator(selector).count()
+                        for selector in FLOWCHART_ICON_SELECTORS
+                    ):
                         continue
                 elif document_type == "mindmap":
                     if not await row.locator(".icon-a-siweidaotu1_huaban1").count():
