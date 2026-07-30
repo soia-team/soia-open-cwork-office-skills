@@ -1,107 +1,89 @@
-# SOIA 办公协作技能库
+<div align="center">
 
-[English](README.en.md) · 中文
+<img src="assets/icon.png" width="88" alt="">
 
-把飞书知识库、ProcessOn 图表这类「锁在平台里」的资料，安全地取出来变成你自己的本地文件。
+# SOIA Open CWork Office Skills
 
-## 这是什么
+**把锁在 SaaS 里的团队资料，变成本地能搜、能改、能进 Git 的文件**
 
-`soia-open-cwork-office-skills` 解决同一个问题：**团队资料散在各个 SaaS 平台里，离开平台就打不开**。本仓的技能把它们导出成本地可版本化的格式：
+3 个技能：飞书只读调研、知识库同步、ProcessOn 图表归档。默认只读，写操作必须授权
 
-```text
-飞书知识库 / 云文档  →  本地 Markdown（保留目录与来源元数据）
-ProcessOn 图表       →  本地图表源文件（盘点 → 授权 → 导出 → 校验 → 归档）
+[English](README.en.md) · 中文 · [全生态门户](https://github.com/soia-team/soia-open-skills)
+
+</div>
+
+---
+
+## 它解决什么
+
+资料在飞书和 ProcessOn 里活得很好，**离开那个平台就不存在**——搜不到、进不了 Git、AI 也读不着。缺的是一条把它们变成本地文件的合规通道。
+
+```mermaid
+flowchart LR
+    A["飞书 Wiki<br/>云空间 · 文档"] --> B["只读调研<br/>最小权限 scope"]
+    B --> C["单向同步<br/>本地 Markdown + 来源元数据"]
+    C --> D["Git · Obsidian<br/>VitePress"]
+    E["ProcessOn 图表"] --> F["盘点 → 逐项授权<br/>导出 → 校验 → 归档"]
 ```
 
-所有操作**默认只读**。浏览、搜索、下载属于允许动作；编辑、重命名、删除必须先获得你的明确确认。
+## 3 个技能
 
-### 适合什么场景
+### 01 飞书　`Wiki 与云文档 → 可复核的本地 Markdown`
 
-- 「把我们飞书知识库同步一份到本地，我要进 Git。」
-- 「调研一下飞书云盘里有哪些文档，先别动。」
-- 「ProcessOn 上那些架构图，导出来存档。」
-- 「飞书 CLI 怎么配？我要最小权限的。」
+| 技能 | 职责 | 开箱 |
+|---|---|:-:|
+| `soia-cwork-feishu-cli` | 通过官方 `lark-cli` 以最小权限只读调研 Wiki、Drive 与文档 | 🟡 |
+| `soia-cwork-feishu-doc-git-sync` | 以应用身份**单向**同步为本地 Markdown，保留目录、来源与同步元数据 | 🟡 |
 
-### 不负责什么
+### 02 图表　`ProcessOn 图表 → 校验过完整性的归档`
 
-- 不写回平台。同步是单向的（平台 → 本地），不会改动飞书或 ProcessOn 上的原件。
-- 不保存凭据。飞书用官方 lark-cli 的登录态，ProcessOn 用你自己的浏览器 profile，都不进仓库。
-- 不申请超出需要的权限。飞书调研走最小权限只读 scope，会先告诉你需要哪些权限再让你决定。
-- 不做内容加工。导出来的 Markdown 如何整理、提炼，交给 [soia-open-pkm-vault-skills](https://github.com/soia-team/soia-open-pkm-vault-skills)。
+| 技能 | 职责 | 开箱 |
+|---|---|:-:|
+| `soia-cwork-processon-diagrams` | 盘点图表，按逐项授权导出，校验完整性后归档 | 🟡 |
 
-## 从哪里开始
-
-| 你要做的 | 用这个 | 完成标准 |
-|---|---|---|
-| 先摸清飞书里有什么 | `soia-cwork-feishu-cli` | 最小权限只读盘点，凭据配置有据可查 |
-| 同步飞书文档到本地 | `soia-cwork-feishu-doc-git-sync` | 本地 Markdown 保留目录、来源与同步元数据 |
-| 导出归档 ProcessOn 图表 | `soia-cwork-processon-diagrams` | 盘点 checkpoint、授权确认、导出校验三步齐全 |
-
-三个技能都需要先完成平台侧登录或应用授权，技能会在执行前逐项检查并明确告诉你缺什么。
-
-## 技能清单
-
-> **开箱可用**：✅ 装完即可使用 · 🟡 还需申请 API key 或完成第三方登录
-
-| 技能 | 一句话职责 | 开箱可用 |
-|---|---|---|
-| `soia-cwork-feishu-cli` | 通过飞书官方 lark-cli 以最小权限只读调研 Wiki、Drive 与文档。 | 🟡 |
-| `soia-cwork-feishu-doc-git-sync` | 将飞书知识库或云文档以应用身份只读同步为本地 Markdown，保留目录、来源和同步元数据，并可接入 Git、Obsidian 与 VitePress。 | 🟡 |
-| `soia-cwork-processon-diagrams` | 安全盘点并按授权导出、校验和归档 ProcessOn 图表。 | 🟡 |
-
-## 触发词映射
-
-装完直接用自然语言说话即可，Agent 按下表触发对应技能（完整触发词见各技能 `SKILL.md` 的 `description`）：
-
-| 你说 | 触发技能 |
-|---|---|
-| `调研飞书知识库` / `读取飞书云盘` / `配置飞书 CLI` | `soia-cwork-feishu-cli` |
-| `ProcessOn 盘点` / `导出架构图` / `批量下载图表` | `soia-cwork-processon-diagrams` |
+🟡 三个技能都需先完成对应平台的登录或应用授权，技能会在执行前告诉你缺什么
 
 ## 安装
 
-推荐装整个领域插件，一次装好本仓全部技能：
+三个宿主任选，装整个领域插件即 3 个技能一次到位。
 
 ```bash
-claude plugin marketplace add soia-team/soia-open-skills
+claude plugin marketplace add soia-team/soia-open-skills && claude plugin install soia-cwork-office@soia
 ```
 
 ```bash
-claude plugin install soia-cwork-office@soia
+codex plugin marketplace add soia-team/soia-open-skills && codex plugin add soia-cwork-office@soia
 ```
 
-Codex 用户：
+WorkBuddy 是桌面端没有 CLI，由技能代劳——对 AI 说「装到 WorkBuddy」，或直接跑：
 
 ```bash
-codex plugin marketplace add soia-team/soia-open-skills
-codex plugin add soia-cwork-office@soia
+python3 <soia-open-skills>/skills/soia-meta-skill-release/scripts/install_workbuddy_experts.py soia-cwork-office
 ```
 
-只要单个技能时可用 npx 路线。注意技能会落进共享真源 `~/.agents/skills`；
-若同时装了插件，同一技能会出现两份索引且各自漂移，建议二选一：
+装完重启客户端，在【专家中心 → 我的专家】召唤 **Soia · 办公资料助手**。
+
+> **常驻成本 ~309 tok**，全生态最轻的领域插件之一。不用时 `claude plugin disable soia-cwork-office@soia` 降到零。
+> 只想要单个技能可走 npx：`npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s <技能名> -y`——与插件二选一，并存会产生双份索引且各自漂移。
+
+## 不负责什么
+
+- **默认只读**。写、改、删平台上的内容必须拿到**针对这一次**的明确授权，不因「上次批准过」就默认继续。
+- **同步是单向的**。本地是平台的只读副本；改了本地不会也不该被推回去。
+- **不保存凭据**。飞书应用凭据、ProcessOn 登录态由官方流程与你自己持有，不进仓库、不进日志、不写进同步产物。
+- **不外发公司资料**。同步下来的内容留在本地，不上传第三方服务。
+- **不做环境安装**。`lark-cli`、浏览器自动化依赖交给 [soia-open-env-skills](https://github.com/soia-team/soia-open-env-skills)。
+
+## 贡献
+
+改动技能后提交前跑：
 
 ```bash
-npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s <技能名> -y
+python3 -m unittest discover -s tests -p 'test_*.py' && python3 scripts/audit_skills.py --strict && python3 scripts/generate_expert_manifest.py --check
 ```
 
-## 验证与贡献
-
-改动技能后，提交前跑：
-
-```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
-python3 scripts/generate_skill_catalog.py --check
-python3 scripts/audit_skills.py --strict
-```
-
-贡献流程、技能契约与发布步骤见元仓
-[CONTRIBUTING.md](https://github.com/soia-team/soia-open-skills/blob/main/CONTRIBUTING.md)。
-
-## 生态导航
-
-规范真源、全生态技能目录与安装指南见 [soia-team/soia-open-skills](https://github.com/soia-team/soia-open-skills)。
-维护本仓技能的完整流程见 [CONTRIBUTING.md](https://github.com/soia-team/soia-open-skills/blob/main/CONTRIBUTING.md)。
+完整流程见门户仓 [CONTRIBUTING.md](https://github.com/soia-team/soia-open-skills/blob/main/CONTRIBUTING.md)。
 
 ## License
 
-MIT License — see [LICENSE](./LICENSE).
+MIT —— 见 [LICENSE](./LICENSE)。

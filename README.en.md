@@ -1,110 +1,89 @@
-# SOIA Collaborative Office Skills
+<div align="center">
 
-[中文](README.md) · English
+<img src="assets/icon.png" width="88" alt="">
 
-Get material that is locked inside Feishu wikis and ProcessOn diagrams out safely, as local files you own.
+# SOIA Open CWork Office Skills
 
-## What this is
+**Turn team material locked inside SaaS into local files you can search, edit and commit**
 
-`soia-open-cwork-office-skills` addresses one problem: **team material scattered across SaaS platforms is unreadable once you leave the platform**. These skills export it into local, version-controllable formats:
+3 skills: read-only Feishu research, knowledge-base sync, ProcessOn diagram archiving. Read-only by default; writes need your authorization
 
-```text
-Feishu wiki / docs   →  local Markdown (directory structure and source metadata preserved)
-ProcessOn diagrams   →  local diagram sources (inventory → authorize → export → verify → archive)
+[中文](README.md) · English · [Ecosystem portal](https://github.com/soia-team/soia-open-skills)
+
+</div>
+
+---
+
+## What it solves
+
+Material lives happily inside Feishu and ProcessOn — and **ceases to exist the moment you leave those platforms**. You can't search it, can't commit it, and your agent can't read it. What's missing is a compliant path that turns it into local files.
+
+```mermaid
+flowchart LR
+    A["Feishu Wiki<br/>Drive · Docs"] --> B["Read-only research<br/>least-privilege scopes"]
+    B --> C["One-way sync<br/>local Markdown + source metadata"]
+    C --> D["Git · Obsidian<br/>VitePress"]
+    E["ProcessOn diagrams"] --> F["Inventory → per-item consent<br/>export → verify → archive"]
 ```
 
-Every operation is **read-only by default**. Browsing, searching, and downloading are allowed; editing, renaming, and deleting require your explicit confirmation.
+## 3 skills
 
-### When to use it
+### 01 Feishu　`Wiki and cloud docs → reviewable local Markdown`
 
-- "Sync our Feishu wiki locally — I want it in Git."
-- "Survey what's in the Feishu drive; don't change anything yet."
-- "Export and archive those architecture diagrams from ProcessOn."
-- "How do I configure the Feishu CLI with least privilege?"
+| Skill | Responsibility | Ready |
+|---|---|:-:|
+| `soia-cwork-feishu-cli` | Read-only research across Wiki, Drive and docs via the official `lark-cli` with least-privilege scopes | 🟡 |
+| `soia-cwork-feishu-doc-git-sync` | **One-way** sync to local Markdown as an app identity, preserving structure, source links and sync metadata | 🟡 |
 
-### What it does not do
+### 02 Diagrams　`ProcessOn diagrams → an archive whose completeness was verified`
 
-- Does not write back to the platform. Sync is one-way (platform → local); originals in Feishu or ProcessOn stay untouched.
-- Does not store credentials. Feishu uses the official lark-cli session, ProcessOn uses your own browser profile — neither enters the repo.
-- Does not request more access than needed. Feishu surveys use least-privilege read-only scopes and tell you which permissions are required before you decide.
-- Does not process content. What to do with the exported Markdown belongs to [soia-open-pkm-vault-skills](https://github.com/soia-team/soia-open-pkm-vault-skills).
+| Skill | Responsibility | Ready |
+|---|---|:-:|
+| `soia-cwork-processon-diagrams` | Inventories diagrams, exports the ones you authorize item by item, verifies completeness, then archives | 🟡 |
 
-## Where to start
-
-| Your task | Use | Done when |
-|---|---|---|
-| Find out what's in Feishu | `soia-cwork-feishu-cli` | Least-privilege read-only inventory with traceable credential setup |
-| Sync Feishu docs locally | `soia-cwork-feishu-doc-git-sync` | Local Markdown preserves structure, source, and sync metadata |
-| Export and archive ProcessOn diagrams | `soia-cwork-processon-diagrams` | Inventory checkpoint, authorization, and export verification all complete |
-
-All three need a platform login or app authorization first; each checks and reports exactly what is missing before running.
-
-## Skill catalog
-
-> **Ready to use**: ✅ works right after install · 🟡 needs an API key or a third-party login first
-
-| Skill | Responsibility | Ready to use |
-|---|---|---|
-| `soia-cwork-feishu-cli` | Use the official Feishu `lark-cli` for least-privilege, read-only research across wikis, drives, and documents. | 🟡 |
-| `soia-cwork-feishu-doc-git-sync` | Synchronize Feishu wikis or cloud documents to local Markdown while preserving structure and source metadata. | 🟡 |
-| `soia-cwork-processon-diagrams` | Inventory ProcessOn folders and export, verify, and archive authorized diagrams safely. | 🟡 |
-
-## Trigger phrases
-
-Once installed, just speak naturally — the agent routes to a skill by these phrases (the full trigger list lives in each skill's `SKILL.md` `description`).
-
-> Trigger phrases are listed in the language the skill actually matches on. Most are Chinese because that is what these skills were written to recognize; describing the same intent in English works too — the agent matches on meaning, not on the literal string.
-
-| You say | Skill |
-|---|---|
-| `调研飞书知识库` / `读取飞书云盘` / `配置飞书 CLI` | `soia-cwork-feishu-cli` |
-| `ProcessOn 盘点` / `导出架构图` / `批量下载图表` | `soia-cwork-processon-diagrams` |
+🟡 All three need a platform login or app authorization first; each tells you exactly what is missing before it runs
 
 ## Install
 
-Installing the whole domain plugin is recommended — it brings every skill in this repo:
+Any of three hosts. Installing the domain plugin brings all 3 skills at once.
 
 ```bash
-claude plugin marketplace add soia-team/soia-open-skills
+claude plugin marketplace add soia-team/soia-open-skills && claude plugin install soia-cwork-office@soia
 ```
 
 ```bash
-claude plugin install soia-cwork-office@soia
+codex plugin marketplace add soia-team/soia-open-skills && codex plugin add soia-cwork-office@soia
 ```
 
-For Codex:
+WorkBuddy is a desktop app with no CLI, so a skill does the work — tell your agent "install into WorkBuddy", or run:
 
 ```bash
-codex plugin marketplace add soia-team/soia-open-skills
-codex plugin add soia-cwork-office@soia
+python3 <soia-open-skills>/skills/soia-meta-skill-release/scripts/install_workbuddy_experts.py soia-cwork-office
 ```
 
-For a single skill you can use the npx route. Note the skill lands in the shared
-source `~/.agents/skills`; if the plugin is installed too, the same skill shows up
-twice and the two copies drift apart — pick one:
+Restart the client, then summon **Soia · 办公资料助手** under Experts → My Experts.
+
+> **Always-on cost ~309 tok**, among the lightest domain plugins. `claude plugin disable soia-cwork-office@soia` drops it to zero.
+> For a single skill use npx: `npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s <skill-name> -y` — pick one route or the other; running both puts the same skill in the index twice and the copies drift apart.
+
+## What it does not do
+
+- **Read-only by default.** Writing, editing or deleting anything on a platform requires authorization **for that specific action** — a prior approval does not carry over.
+- **Sync is one-way.** The local copy is a read-only mirror; editing it does not and should not push back.
+- **Does not store credentials.** Feishu app credentials and ProcessOn sessions stay with the official flows and with you — never in the repo, the logs, or the synced output.
+- **Does not send company material anywhere.** Synced content stays local; nothing is uploaded to third-party services.
+- **Does not install environments.** `lark-cli` and browser-automation prerequisites belong to [soia-open-env-skills](https://github.com/soia-team/soia-open-env-skills).
+
+## Contributing
+
+Before committing a skill change:
 
 ```bash
-npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s <skill-name> -y
+python3 -m unittest discover -s tests -p 'test_*.py' && python3 scripts/audit_skills.py --strict && python3 scripts/generate_expert_manifest.py --check
 ```
 
-## Validate & contribute
-
-After changing a skill, run before committing:
-
-```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
-python3 scripts/generate_skill_catalog.py --check
-python3 scripts/audit_skills.py --strict
-```
-
-Contribution flow, the skill contract, and release steps are in the portal's
-[CONTRIBUTING.md](https://github.com/soia-team/soia-open-skills/blob/main/CONTRIBUTING.md).
-
-## Ecosystem
-
-Specifications, the full ecosystem catalog, and install guides live in [soia-team/soia-open-skills](https://github.com/soia-team/soia-open-skills).
-The full maintenance workflow is in [CONTRIBUTING.md](https://github.com/soia-team/soia-open-skills/blob/main/CONTRIBUTING.md).
+Full workflow in the portal's [CONTRIBUTING.md](https://github.com/soia-team/soia-open-skills/blob/main/CONTRIBUTING.md).
 
 ## License
 
-MIT License — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](./LICENSE).
