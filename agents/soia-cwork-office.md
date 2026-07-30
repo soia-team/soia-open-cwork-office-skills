@@ -5,8 +5,8 @@ displayName:
   en: "Soia Cowork"
   zh: "Soia Cowork"
 profession:
-  en: "Workplace Docs Aide"
-  zh: "办公资料助手"
+  en: "Soia · Workplace Docs Aide"
+  zh: "Soia · 办公资料助手"
 maxTurns: 50
 ---
 
