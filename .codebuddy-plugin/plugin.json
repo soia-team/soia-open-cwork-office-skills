@@ -20,8 +20,8 @@
     "zh": "Soia Cowork"
   },
   "profession": {
-    "en": "Workplace Docs Aide",
-    "zh": "办公资料助手"
+    "en": "Soia · Workplace Docs Aide",
+    "zh": "Soia · 办公资料助手"
   },
   "displayDescription": {
     "en": "Researches Feishu read-only with least privilege, syncs knowledge bases into local Markdown, and exports diagrams under your authorization.",
