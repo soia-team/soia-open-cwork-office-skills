@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/hero.webp" width="640" alt="">
+<img src="assets/icon.png" width="88" alt="">
 
 # SOIA Open CWork Office Skills
 
@@ -32,14 +32,14 @@ flowchart LR
 
 | 技能 | 职责 | 开箱 |
 |---|---|:-:|
-| `soia-cwork-feishu-cli` | 通过官方 `lark-cli` 以最小权限只读调研 Wiki、Drive 与文档 | 🟡 |
-| `soia-cwork-feishu-doc-git-sync` | 以应用身份**单向**同步为本地 Markdown，保留目录、来源与同步元数据 | 🟡 |
+| [`soia-cwork-feishu-cli`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-cli.md) | 通过官方 `lark-cli` 以最小权限只读调研 Wiki、Drive 与文档 | 🟡 |
+| [`soia-cwork-feishu-doc-git-sync`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-doc-git-sync.md) | 以应用身份**单向**同步为本地 Markdown，保留目录、来源与同步元数据 | 🟡 |
 
 ### 02 图表　`ProcessOn 图表 → 校验过完整性的归档`
 
 | 技能 | 职责 | 开箱 |
 |---|---|:-:|
-| `soia-cwork-processon-diagrams` | 盘点图表，按逐项授权导出，校验完整性后归档 | 🟡 |
+| [`soia-cwork-processon-diagrams`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-processon-diagrams.md) | 盘点图表，按逐项授权导出，校验完整性后归档 | 🟡 |
 
 🟡 三个技能都需先完成对应平台的登录或应用授权，技能会在执行前告诉你缺什么
 
