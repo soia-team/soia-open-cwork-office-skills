@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/hero.webp" width="640" alt="">
+<img src="assets/icon.png" width="88" alt="">
 
 # SOIA Open CWork Office Skills
 
@@ -32,14 +32,14 @@ flowchart LR
 
 | Skill | Responsibility | Ready |
 |---|---|:-:|
-| `soia-cwork-feishu-cli` | Read-only research across Wiki, Drive and docs via the official `lark-cli` with least-privilege scopes | 🟡 |
-| `soia-cwork-feishu-doc-git-sync` | **One-way** sync to local Markdown as an app identity, preserving structure, source links and sync metadata | 🟡 |
+| [`soia-cwork-feishu-cli`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-cli.md) | Read-only research across Wiki, Drive and docs via the official `lark-cli` with least-privilege scopes | 🟡 |
+| [`soia-cwork-feishu-doc-git-sync`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-doc-git-sync.md) | **One-way** sync to local Markdown as an app identity, preserving structure, source links and sync metadata | 🟡 |
 
 ### 02 Diagrams　`ProcessOn diagrams → an archive whose completeness was verified`
 
 | Skill | Responsibility | Ready |
 |---|---|:-:|
-| `soia-cwork-processon-diagrams` | Inventories diagrams, exports the ones you authorize item by item, verifies completeness, then archives | 🟡 |
+| [`soia-cwork-processon-diagrams`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-processon-diagrams.md) | Inventories diagrams, exports the ones you authorize item by item, verifies completeness, then archives | 🟡 |
 
 🟡 All three need a platform login or app authorization first; each tells you exactly what is missing before it runs
 
