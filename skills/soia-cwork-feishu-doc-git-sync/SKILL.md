@@ -3,11 +3,11 @@ name: soia-cwork-feishu-doc-git-sync
 description: 将飞书知识库或云文档以应用身份只读同步为本地 Markdown，保留目录、来源和同步元数据，并可接入 Git、Obsidian 与 VitePress；当用户要求同步飞书知识库、备份到 Git、在本地查看或规划双向同步时使用。
 dependencies:
   hard: [soia-cwork-feishu-cli]
-version: 1.7.2
+version: 1.7.3
 created_at: 2026-07-14 23:24:26
-updated_at: 2026-07-22 20:42:37
+updated_at: 2026-08-05 13:30:00
 created_by: claude opus 4.6
-updated_by: gpt-5.6-luna
+updated_by: claude-opus-5
 ---
 
 # soia-cwork-feishu-doc-git-sync

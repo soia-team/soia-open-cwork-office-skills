@@ -1,11 +1,11 @@
 ---
 name: soia-cwork-processon-diagrams
 description: 安全盘点并按授权导出、校验和归档 ProcessOn 图表。触发：ProcessOn 盘点、导出架构图、批量下载图表
-version: 1.15.0
+version: 1.15.1
 created_at: 2026-07-20 18:57:53
-updated_at: 2026-07-29 15:31:00
+updated_at: 2026-08-05 13:30:00
 created_by: gpt-5.6-sol
-updated_by: gpt-5.6-sol
+updated_by: claude-opus-5
 dependencies:
   optional: [soia-dev-drawio-visio-diagrams]
 ---
