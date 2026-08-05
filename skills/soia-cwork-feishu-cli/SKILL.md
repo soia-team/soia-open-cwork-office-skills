@@ -85,6 +85,8 @@ lark-cli auth status --json --verify
 lark-cli whoami
 ```
 
+**WorkBuddy** 的装载单位是角色化专家而不是插件，`npx skills add -a '*'` 覆盖不到它，需要单独安装，见 [docs/install/workbuddy.md](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)。
+
 ### 权限开通与应用发布
 
 在首次调研前，或 CLI 返回错误时，先读取[机器可读权限目录](references/permissions.yml)和[错误目录](references/errors.yml)，再按[权限开通指南](references/permissions.md)向客户解释申请流程。先判断目标是知识库还是云盘，再判断使用 bot 还是 user OAuth；不要把 user OAuth scope 当成 bot 权限，也不要为了读取而申请写入、删除、上传或成员管理权限。
