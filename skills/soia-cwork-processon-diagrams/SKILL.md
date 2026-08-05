@@ -54,6 +54,21 @@ dependencies:
 
 首次使用需装 Playwright、准备 ProcessOn 登录 profile 并配置输出目录，完整步骤见 [setup.md](references/setup.md)。
 
+装整个域（Claude Code 与 Codex 共用同一份域插件）：
+
+```bash
+claude plugin marketplace add soia-team/soia-open-skills
+claude plugin install soia-cwork-office@soia
+```
+
+只装这一个技能：
+
+```bash
+npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-processon-diagrams -y
+```
+
+**WorkBuddy** 的装载单位是角色化专家而不是插件，`npx skills add -a '*'` 覆盖不到它，需要单独安装，见 [docs/install/workbuddy.md](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)。
+
 ### 日志与完成回执
 
 每次运行至少报告：

@@ -107,6 +107,23 @@ python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental 
 python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --validate-only
 ```
 
+### 依赖与安装
+
+装整个域（Claude Code 与 Codex 共用同一份域插件）：
+
+```bash
+claude plugin marketplace add soia-team/soia-open-skills
+claude plugin install soia-cwork-office@soia
+```
+
+只装这一个技能：
+
+```bash
+npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-feishu-doc-git-sync -y
+```
+
+**WorkBuddy** 的装载单位是角色化专家而不是插件，`npx skills add -a '*'` 覆盖不到它，需要单独安装，见 [docs/install/workbuddy.md](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)。
+
 ### 三种工作模式
 
 - `mirror`：默认模式。知识库是来源，本地生成的 `10_knowledge-base/` 不应手工编辑。
