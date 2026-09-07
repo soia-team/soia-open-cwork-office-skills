@@ -3,6 +3,14 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.8.2 — 2026-09-07
+
+Clarify instruction autonomy and preserve explicit approval gates
+
+## 维护
+- docs: clarify scoped autonomy and preserve approval gates (#55)
+- chore(release): open next train after release
+
 ## v1.8.1 — 2026-08-06
 
 安装章节三宿主覆盖、config 归位 assets
