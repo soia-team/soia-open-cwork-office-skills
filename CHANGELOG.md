@@ -3,6 +3,16 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.8.3 — 2026-09-14
+
+飞书只读调研按需读取错误与权限指南，保留最小权限和身份分离。
+
+## 修复
+- fix(skills): reduce redundant reading and confirmation (#58)
+
+## 维护
+- chore(release): open next train after v1.8.2 (#57)
+
 ## v1.8.2 — 2026-09-07
 
 Clarify instruction autonomy and preserve explicit approval gates
