@@ -36,21 +36,30 @@ except ImportError as exc:  # pragma: no cover - exercised in dependency checks
     raise SystemExit("PyYAML is required: python3 -m pip install pyyaml") from exc
 
 
+# The sync flow now ships inside soia-cwork-feishu-cli. Its own file name keeps it
+# apart from that skill's credential config.yml.
 DEFAULT_CONFIG = (
     Path.home()
     / ".config"
     / "soia-skills"
-    / "soia-cwork-feishu-doc-git-sync"
-    / "config.yml"
+    / "soia-cwork-feishu-cli"
+    / "doc-git-sync.yml"
 )
-LEGACY_DEFAULT_CONFIG = (
+# Read-only fallbacks, newest first: the config directory of the former
+# soia-cwork-feishu-doc-git-sync skill, then the pre-v2 layout. Never moved or rewritten.
+LEGACY_DEFAULT_CONFIGS = (
+    Path.home()
+    / ".config"
+    / "soia-skills"
+    / "soia-cwork-feishu-doc-git-sync"
+    / "config.yml",
     Path.home()
     / ".config"
     / "soia-skills"
     / "soia-open-skills"
     / "cwork"
     / "soia-cwork-feishu-doc-git-sync"
-    / "config.yml"
+    / "config.yml",
 )
 DEFAULT_MIRROR_DIR = "10_knowledge-base"
 MIRROR_DIR = DEFAULT_MIRROR_DIR
@@ -327,11 +336,10 @@ def load_config(path_arg: str | None) -> tuple[dict[str, Any], Path]:
     explicit = path_arg or os.environ.get(
         "SOIA_CWORK_FEISHU_DOC_GIT_SYNC_CONFIG_FILE"
     )
-    raw_path = explicit or (
-        str(DEFAULT_CONFIG)
-        if DEFAULT_CONFIG.is_file() or not LEGACY_DEFAULT_CONFIG.is_file()
-        else str(LEGACY_DEFAULT_CONFIG)
-    )
+    raw_path = explicit
+    if not raw_path:
+        candidates = (DEFAULT_CONFIG, *LEGACY_DEFAULT_CONFIGS)
+        raw_path = str(next((item for item in candidates if item.is_file()), DEFAULT_CONFIG))
     path = Path(raw_path).expanduser().resolve()
     if not path.is_file():
         raise SystemExit(
@@ -4846,7 +4854,7 @@ def sync(args: argparse.Namespace) -> int:
         write_text(
             readme,
             "# feishu-knowledge 同步说明\n\n"
-            "本目录由 `soia-cwork-feishu-doc-git-sync` 维护。\n\n"
+            "本目录由 `soia-cwork-feishu-cli` 的知识库同步流程维护。\n\n"
             f"- `{MIRROR_DIR}/`：知识库生成内容，下一次同步可能覆盖。\n"
             "- `20_本地补录/`：本地手工补录，不会被同步任务覆盖。\n"
             "- `90_同步元数据/`：节点清单、路径映射和 VitePress 侧边栏。\n\n"

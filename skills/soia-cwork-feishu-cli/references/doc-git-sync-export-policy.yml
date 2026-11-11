@@ -105,7 +105,7 @@ execution:
 
 output:
   user_must_choose_or_confirm: true
-  default_disposable_dir: "${TMPDIR:-/tmp}/soia-cwork-feishu-doc-git-sync/exports"
+  default_disposable_dir: "${TMPDIR:-/tmp}/soia-cwork-feishu-cli/doc-git-sync/exports"
   generated_mirror_dir_policy: "deny_by_default"
   git_policy: "untracked_or_explicitly_approved_only"
   retention: "tell_user where files were written and how to remove them"

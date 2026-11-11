@@ -6,8 +6,6 @@ created_at: 2026-07-20 18:57:53
 updated_at: 2026-08-05 13:30:00
 created_by: gpt-5.6-sol
 updated_by: claude-opus-5
-dependencies:
-  optional: [soia-dev-drawio-visio-diagrams]
 ---
 
 # ProcessOn 图表浏览与导出
@@ -54,20 +52,20 @@ dependencies:
 
 首次使用需装 Playwright、准备 ProcessOn 登录 profile 并配置输出目录，完整步骤见 [setup.md](references/setup.md)。
 
-装整个域（Claude Code 与 Codex 共用同一份域插件）：
+整域需明确选择（Claude Code 与 Codex 共用同一份域插件）：
 
 ```bash
 claude plugin marketplace add soia-team/soia-open-skills
 claude plugin install soia-cwork-office@soia
 ```
 
-只装这一个技能：
+默认项目单技能（`<agent>` 换成明确宿主，执行前核实当前参数；仅明确选择全局时加 `-g`）：
 
 ```bash
-npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-processon-diagrams -y
+npx skills add soia-team/soia-open-cwork-office-skills -a <agent> -s soia-cwork-processon-diagrams
 ```
 
-**WorkBuddy** 的装载单位是角色化专家而不是插件，`npx skills add -a '*'` 覆盖不到它，需要单独安装，见 [docs/install/workbuddy.md](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)。
+**WorkBuddy** 使用[专家安装说明](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)，不由 npx 代装。上述命令不构成安装或发布授权。
 
 ### 日志与完成回执
 
@@ -175,7 +173,7 @@ python3 scripts/diff_processon_inventory.py \
 | 用户目标 / 文件 | 调用路线 | 输出与边界 |
 |---|---|---|
 | POS、XMind、SVG、图片、PDF 的内容盘点 | 本技能 `inspect_processon_export.py` | 只读标题、节点文字、尺寸、校验值；缩略图级证据不能冒充结构化原文 |
-| VSDX 的读取、转 draw.io、可编辑升级 | `soia-dev-drawio-visio-diagrams` | 先前向验证 VSDX，再转 `.drawio` 真源；任何图形升级须有用户具体目标 |
+| VSDX 的读取、转 draw.io、可编辑升级 | 不在本技能范围；由用户用 draw.io 等工具另行处理 | 本技能只下载、校验和归档 VSDX；任何图形升级须有用户具体目标 |
 | 仅需看图 | ProcessOn “浏览”视图或导出预览 | 记录 DOM 文字、视觉截图或缩略图证据，并区分明确文字与布局推断 |
 
 浏览器不可用、账号未登录或真实可见安全验证未完成时，让客户手动导出 VSDX/POS/PNG/PDF/XMind，再从阶段 2 的本地归档入口继续。

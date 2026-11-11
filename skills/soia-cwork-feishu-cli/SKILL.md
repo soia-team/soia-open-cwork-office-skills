@@ -1,16 +1,18 @@
 ---
 name: soia-cwork-feishu-cli
-description: 通过飞书官方 lark-cli 以最小权限只读调研 Wiki、Drive 与文档。触发：「调研飞书知识库」「读取飞书云盘」「配置飞书 CLI」
-version: 1.0.4
+description: 用飞书官方 lark-cli 以最小权限只读调研 Wiki、Drive 与文档，或把知识库只读同步为本地 Markdown。触发：「调研飞书知识库」「读取飞书云盘」「配置飞书 CLI」「同步飞书知识库」「飞书备份到 Git」「规划双向同步」
+version: 1.1.0
 created_at: 2026-07-14 15:26:13
-updated_at: 2026-09-14 14:07:07
+updated_at: 2026-11-11 18:30:00
 created_by: claude opus 4.6
-updated_by: openai/gpt-6-astra
+updated_by: claude-fable-5-2
 ---
 
 # soia-cwork-feishu-cli
 
 使用飞书官方 `lark-cli` 连接用户明确授权的飞书应用，按“知识库/Wiki”和“云盘/Drive”分开执行只读盘点、搜索和文档分析。默认使用应用身份 bot；只有用户明确要求访问个人云盘、个人知识库或私有资源时，才走用户 OAuth。默认不修改飞书远端内容；写入、移动、删除、权限变更、发送消息和导出个人数据都必须单独确认。
+
+本技能有两类活：**只读调研**（下文各节）和**知识库同步到本地 Markdown / Git**（见「知识库同步到本地」一节，原独立技能 `soia-cwork-feishu-doc-git-sync` 已并入本技能）。只做调研时不必读同步部分。
 
 ## 场景分流：知识库与云盘不能混用
 
@@ -40,6 +42,7 @@ updated_by: openai/gpt-6-astra
 | 读取、总结或比较飞书文档 | 先识别 URL 类型，再按 `lark-doc` 规则读取正文和大纲 | 文档摘要、引用位置、格式和权限限制 |
 | 搜索飞书知识库、文档和云盘 | 使用 Drive Search 或 Wiki 节点查询，不猜 token 和参数 | 命中文档、标题、类型、空间和下一步读取范围 |
 | 安装或修复飞书 CLI | 安装官方 CLI，配置应用凭证，检查 token、身份、scope 和连通性 | 命令输出摘要；绝不打印 App Secret 或 access token |
+| 同步飞书知识库到本地、备份到 Git、在本地查看 | 以应用身份只读镜像为 Markdown，保留目录、来源和同步元数据，可接入 Git、Obsidian、VitePress | 本地镜像目录、同步清单、失败清单与验收结果 |
 
 ### 客户如何使用
 
@@ -48,26 +51,15 @@ updated_by: openai/gpt-6-astra
 - “用飞书 CLI 盘点我可见的知识库层级和云盘文档类型。”
 - “读取这个飞书 Wiki 页面，判断它更适合迁移到哪个开源本地部署产品。”
 - “检查飞书应用当前能看到哪些知识空间和文档，不要修改任何内容。”
+- “把这个飞书知识库同步成本地 Markdown，备份到 Git。”
 
 执行前解析 `source`、`target`、`scope`、`as` 和 `output`。对本技能的调研任务，默认 `as=bot`、`read_only=true`、`dry_run=true`（涉及写操作时）；不要因为 bot 看不到用户个人资源就静默改用用户 OAuth。
 
 ### 依赖与安装
 
-安装本技能：
-
-```bash
-claude plugin marketplace add soia-team/soia-open-skills
-```
-
-```bash
-claude plugin install soia-cwork-office@soia
-```
-
-只要这一个技能时，可用 npx 路线。注意技能会落进共享真源 `~/.agents/skills`；若同时装了插件，同一技能会出现两份索引且各自漂移，建议二选一：
-
-```bash
-npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-feishu-cli -y
-```
+默认项目单技能：`npx skills add soia-team/soia-open-cwork-office-skills -a <agent> -s soia-cwork-feishu-cli`，执行前核实当前参数。
+整域需明确选择：Claude Code 使用 `claude plugin marketplace add` / `claude plugin install soia-cwork-office@soia`，Codex 使用 `codex plugin marketplace add` / `codex plugin add soia-cwork-office@soia`；市场为 soia-team/soia-open-skills，完整步骤见[官方安装说明](https://github.com/soia-team/soia-open-skills#安装)。
+WorkBuddy 使用[专家安装说明](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)，不由 npx 代装。上述命令不构成安装或发布授权。
 
 | 依赖 | 类型 | 安装 / 配置 | 缺失时怎么处理 |
 |---|---|---|---|
@@ -84,8 +76,6 @@ lark-cli profile list
 lark-cli auth status --json --verify
 lark-cli whoami
 ```
-
-**WorkBuddy** 的装载单位是角色化专家而不是插件，`npx skills add -a '*'` 覆盖不到它，需要单独安装，见 [docs/install/workbuddy.md](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)。
 
 ### 权限开通与应用发布
 
@@ -243,6 +233,64 @@ lark-cli auth qrcode '<verification_url>' --output "${TMPDIR:-/tmp}/soia-cwork-f
 - <缺 scope、bot 不可见资源、需要用户授权或无>
 ```
 
+## 知识库同步到本地（Markdown / Git / Obsidian / VitePress）
+
+用户说“同步飞书知识库”“备份到 Git”“在本地查看”“规划双向同步”时走这一节。默认方向是 Feishu → 本地；不向飞书写入，双向同步必须先建立文档归属、冲突策略和写权限。完整能力表、14 步用法、全部命令、同步规则与 ID 增量说明在 [references/doc-git-sync.md](references/doc-git-sync.md)，真实同步前读它。
+
+### 最小流程
+
+1. 先按上文完成应用凭证登录，确认机器人能读目标知识空间；同步只用 `--as bot`。
+2. 准备同步私有配置（知识空间 ID、输出目录、来源 URL 模板），模板见 [assets/doc-git-sync.config.example.yml](assets/doc-git-sync.config.example.yml)。还需要 Python 3.10+ 与 PyYAML；Git、VitePress、Obsidian 是可选增强。
+3. dry-run 核对空间、节点数和目标目录 → 单节点隔离试点 → 增量同步 → 本地验收。Sheet、多维表格、附件下载、完整导出都要用户明确确认范围后在私有配置里逐项开启。
+
+```bash
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --dry-run
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --output-dir <pilot-output-dir> \
+  --pilot-node-token <node_token> --incremental
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --retry-failed --retry-batch-size 100 --skip-assets
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --validate-only
+```
+
+验收失败退出码为 2；`failed`/`stale` 或语义缺口不算成功，零退出码本身也不是镜像完整的证据。
+
+### 同步配置位置与旧配置回退
+
+```text
+~/.config/soia-skills/soia-cwork-feishu-cli/doc-git-sync.yml
+SOIA_CWORK_FEISHU_DOC_GIT_SYNC_CONFIG_FILE=<custom-config-path>
+```
+
+同步配置与本技能的凭证配置 `config.yml` 分开放。没有显式 `--config` 或环境变量时，脚本按顺序查找：新位置 → 旧技能名目录 `~/.config/soia-skills/soia-cwork-feishu-doc-git-sync/config.yml` → 更早的 `~/.config/soia-skills/soia-open-skills/cwork/soia-cwork-feishu-doc-git-sync/config.yml`。旧位置是只读回退：已有配置照常生效，不搬移、不改写、不删除；新建配置写新位置。
+
+### 同步安全规则
+
+- 不在公开 skill、Obsidian vault、Markdown、Git 提交、终端输出或最终回复中写入 App Secret、access token、cookie。
+- 终端日志、进度回执和最终回复不得输出本地绝对路径、具体本地文件名、操作系统用户名、用户名、密码、App Secret、access token 或私有下载 URL；统一使用脱敏占位符，只报告状态、数量和错误类别。详见 [references/doc-git-sync-output-redaction.yml](references/doc-git-sync-output-redaction.yml)。
+- 不默认调用飞书创建、更新、删除接口。
+- `drive +export`、`drive +export-download`、`docs +media-download` 和附件下载均属于数据导出/下载动作；用户说“看下能否导出”时只做 inspect、help、schema 或 dry-run，不得直接创建本地文件。
+- Sheet 与 Base 值镜像都属于敏感数据落盘：只有用户明确确认需要将选定范围/表同步到本地工作区，并在私有配置中写入有界 `sync.sheets.selections` 或受限 `sync.bitables.selections` 后才可启用；该确认不授权任何工作簿导出、未选附件下载或自动 Git 提交。
+- 真实导出前必须明确回执来源、类型、格式、预计文件数、输出目录和 Git 追踪策略；“检查能力”不等于“授权导出”。
+- 导出文件默认放在临时目录或用户明确指定的目录；只有经用户明确确认的完整镜像初始化才能写入生成目录下的 `_exports/` 或 `_assets/`，并且不得自动提交 Git、自动推送远程或写回飞书。
+- bot 无权访问的个人云盘或私有资源必须报告为不可见，不得切换 user OAuth 代为读取。
+- 不默认覆盖本地补录、删除历史文件或推送远程 Git；这些属于需要明确确认的写入/发布动作。
+- 执行前检查目标仓库、当前分支和远程地址；发现与预期不符时停止并报告。
+
+### 同步的私密信息与中间数据
+
+- 把排除节点 ID、知识空间 ID、凭据别名和本地输出位置只写入技能私有配置，不提交公共仓库。
+- 把 active/excluded 节点清单、同步状态、侧边栏和变更台账保存在用户指定镜像的同步元数据目录；排除记录只用于证明未抓取范围，不包含正文。
+- 把临时下载和接口中间结果交给系统临时目录；只把用户授权的 Markdown、表格快照和资源文件写入交付目录。
+
+### 同步参考
+
+- 完整用法、命令、同步规则、日志回执：[references/doc-git-sync.md](references/doc-git-sync.md)
+- 权限分层：[references/doc-git-sync-permissions.yml](references/doc-git-sync-permissions.yml)；事件订阅与增量目标：[references/doc-git-sync-events.yml](references/doc-git-sync-events.yml)
+- 同步策略：[references/doc-git-sync-sync-policy.yml](references/doc-git-sync-sync-policy.yml)；文档格式转换：[references/doc-git-sync-block-mapping.yml](references/doc-git-sync-block-mapping.yml)
+- Sheet 范围镜像：[references/doc-git-sync-sheet-mirroring.yml](references/doc-git-sync-sheet-mirroring.yml)；富资源镜像：[references/doc-git-sync-rich-resource-mirroring.yml](references/doc-git-sync-rich-resource-mirroring.yml)
+- 表格/多维表格导出安全策略：[references/doc-git-sync-export-policy.yml](references/doc-git-sync-export-policy.yml)；日志与回复脱敏：[references/doc-git-sync-output-redaction.yml](references/doc-git-sync-output-redaction.yml)
+- Git 与 VitePress 接入：[references/doc-git-sync-git-vitepress.yml](references/doc-git-sync-git-vitepress.yml)
+
 ## 资源
 
 - 配置示例：[assets/config.example.yml](assets/config.example.yml)
@@ -254,11 +302,13 @@ lark-cli auth qrcode '<verification_url>' --output "${TMPDIR:-/tmp}/soia-cwork-f
 - 常见错误事实源：[references/errors.yml](references/errors.yml)
 - 权限申请流程：[references/permissions.md](references/permissions.md)
 - 应用凭证初始化脚本：`scripts/setup_app_credentials.py`
+- 知识库同步脚本：`scripts/sync_feishu_wiki.py`（用法见「知识库同步到本地」）
 
 ## 验证
 
 ```bash
 python3 <skill-path>/scripts/setup_app_credentials.py --help
+python3 <skill-path>/scripts/sync_feishu_wiki.py --help
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py <skill-path>
 ```
 

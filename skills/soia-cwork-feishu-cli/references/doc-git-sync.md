@@ -1,16 +1,6 @@
----
-name: soia-cwork-feishu-doc-git-sync
-description: 将飞书知识库或云文档以应用身份只读同步为本地 Markdown，保留目录、来源和同步元数据，并可接入 Git、Obsidian 与 VitePress；当用户要求同步飞书知识库、备份到 Git、在本地查看或规划双向同步时使用。
-dependencies:
-  hard: [soia-cwork-feishu-cli]
-version: 1.7.3
-created_at: 2026-07-14 23:24:26
-updated_at: 2026-08-05 13:30:00
-created_by: claude opus 4.6
-updated_by: claude-opus-5
----
+# 飞书知识库同步到本地 Markdown / Git
 
-# soia-cwork-feishu-doc-git-sync
+本文件是 `soia-cwork-feishu-cli` 的知识库同步子流程（原独立技能 `soia-cwork-feishu-doc-git-sync` 并入），入口与安全边界见 [../SKILL.md](../SKILL.md)。下文命令里的 `<skill-path>` 指本技能目录。
 
 把飞书知识库的内容镜像到一个本地 Markdown 知识库。默认方向是 Feishu → local/Git/Obsidian/VitePress；本技能不默认向飞书写入，双向同步必须先建立文档归属、冲突策略和写权限。
 
@@ -38,7 +28,7 @@ updated_by: claude-opus-5
 
 ### 客户如何使用
 
-1. 确认 `soia-cwork-feishu-cli` 已完成飞书应用凭证登录，并且机器人可以读取目标知识空间。
+1. 确认已按 [../SKILL.md](../SKILL.md) 完成飞书应用凭证登录，并且机器人可以读取目标知识空间。
 2. 在本机私有配置中填写知识空间 ID、输出目录和来源 URL 模板；不要把 App Secret、token 或企业私有路径提交到公开技能仓库。
 3. 首次使用先执行 dry-run，核对空间、节点数量和目标目录。
 4. 先用单节点隔离试点核对表格、资源和样式快照；`--pilot-node-token` 只写明确选择的节点到单独试点目录，不会给空目录补齐其他节点占位文件。
@@ -56,73 +46,56 @@ updated_by: claude-opus-5
 推荐命令：
 
 ```bash
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --dry-run
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --dry-run
 # 试点只写所选节点到独立目录；仍会核验它是否属于当前知识库
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --output-dir <pilot-output-dir> \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --output-dir <pilot-output-dir> \
   --pilot-node-token <node_token> --incremental
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental
 # 没有事件订阅时，按 wiki +node-get 的远端更新时间判断正文是否变化
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental --probe-remote-metadata
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental --probe-remote-metadata
 # 复用已完整正文，优先补独立 Sheet stub、未扫描的内嵌 Sheet 文档，再退避重试失败项
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --retry-failed
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --retry-failed
 # 事件适配器已经拿到变动 ID 时，只拉对应节点；可重复传入多个 ID
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --changed-node-token <node_token> --changed-obj-token <obj_token>
 # 只修复指定节点的本地格式，复用 manifest 中的其他文档，不重试历史失败项
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --rebuild-tree --rebuild-tree-only --only-node-token <node_token> --skip-assets
 # 官方 webhook/长连接适配器写入 JSON/NDJSON 后，按事件目标增量拉取
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --event-file <events.ndjson>
 # 仅在确认历史生成目录曾经扁平化时执行一次结构迁移
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --retry-failed --rebuild-tree
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --retry-failed --rebuild-tree
 # 大型知识库遇到限流时分批补偿；重复执行直到 --validate-only 通过
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> \
   --retry-failed --retry-batch-size 100 --skip-assets
 # 如果只需要修复本地目录层级、暂时不请求飞书
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --rebuild-tree --rebuild-tree-only
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --rebuild-tree --rebuild-tree-only
 # 从飞书刷新最新目录层级和兄弟节点顺序，但复用现有本地正文
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --rebuild-tree --refresh-tree-only
 # 应用私有配置中的整棵子树排除，并清理该子树既有 Markdown、完整导出和已下载附件
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --rebuild-tree --refresh-tree-only --skip-assets
 # 下载图片到本地镜像并把正文中的远程 URL 改成相对路径
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --download-assets
 # 将私有配置中明确选择的 Sheet 范围渲染为 Markdown 表格
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --sync-sheets
 # 将已授权文档中的嵌入式 Sheet 追加为有界 Markdown 表格快照
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --sync-embedded-sheets
 # 将私有配置中明确选择的多维表格镜像为 Markdown 与 JSON 快照
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --sync-bitables
 # 完整初始化仍使用同一同步命令；私有配置中 workbook_exports/base_exports/files.downloads
 # 的 enabled 与 all_nodes 必须都为 true，并按 batch_size 分批重复执行
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental \
   --sync-sheets --sync-bitables
 # 只校验最近一次同步生成的本地镜像，不访问飞书
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --validate-only
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --validate-only
 ```
-
-### 依赖与安装
-
-装整个域（Claude Code 与 Codex 共用同一份域插件）：
-
-```bash
-claude plugin marketplace add soia-team/soia-open-skills
-claude plugin install soia-cwork-office@soia
-```
-
-只装这一个技能：
-
-```bash
-npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-feishu-doc-git-sync -y
-```
-
-**WorkBuddy** 的装载单位是角色化专家而不是插件，`npx skills add -a '*'` 覆盖不到它，需要单独安装，见 [docs/install/workbuddy.md](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)。
 
 ### 三种工作模式
 
@@ -141,43 +114,28 @@ npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-f
 - 兄弟节点顺序直接保留 `wiki +node-list` 返回的飞书顺序，不按标题重新排序；因此 VitePress/Obsidian 目录应与飞书知识库的手工排序一致。
 - 没有事件目标时，默认用 `wiki +node-get` 做元数据探测；这会产生较多轻量元数据请求，但避免重复下载正文。大型空间可改用官方事件订阅并传 `--event-file`。
 - 事件只提供“哪个对象可能变了”的提示，不能替代 Wiki 树对账；创建、删除、标题变化和未识别事件仍需重新对账节点树。
-- 官方事件订阅、权限和 `drive.file.*` 覆盖边界见 [references/events.yml](references/events.yml)。当前 `lark-cli event list` 未暴露云文档 `drive.file.*` 事件，因此本脚本不声称已经在 CLI 内常驻监听；外部长连接/webhook 适配器可以把 JSON/NDJSON 交给 `--event-file`。
+- 官方事件订阅、权限和 `drive.file.*` 覆盖边界见 [doc-git-sync-events.yml](doc-git-sync-events.yml)。当前 `lark-cli event list` 未暴露云文档 `drive.file.*` 事件，因此本脚本不声称已经在 CLI 内常驻监听；外部长连接/webhook 适配器可以把 JSON/NDJSON 交给 `--event-file`。
 
-## 依赖与安装
+## 依赖与配置
 
-安装本技能及其同仓依赖：
-
-```bash
-claude plugin marketplace add soia-team/soia-open-skills
-```
-
-```bash
-claude plugin install soia-cwork-office@soia
-```
-
-只要这一个技能时，可用 npx 路线。注意技能会落进共享真源 `~/.agents/skills`；若同时装了插件，同一技能会出现两份索引且各自漂移，建议二选一：
-
-```bash
-npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-feishu-doc-git-sync -y
-```
+安装方式见 [../SKILL.md](../SKILL.md) 的「依赖与安装」；本流程随 `soia-cwork-feishu-cli` 一起安装，不再有单独入口。
 
 | 依赖 | 类型 | 安装 / 配置 | 缺失时怎么处理 |
 |---|---|---|---|
-| `soia-cwork-feishu-cli` | 强依赖 | 安装并配置飞书官方 `lark-cli` 应用凭证 | 停止，先完成 bot 登录和权限检查 |
-| `lark-cli` | 强依赖 | 参见 `soia-cwork-feishu-cli` 的安装说明 | 停止并报告安装命令 |
+| `lark-cli` 与应用凭证 | 强依赖 | 按 [../SKILL.md](../SKILL.md) 安装官方 `lark-cli` 并完成应用凭证登录 | 停止，先完成 bot 登录和权限检查 |
 | Python 3.10+ | 强依赖 | 使用系统 Python 或项目 Python | 停止 |
 | PyYAML | 强依赖 | `python3 -m pip install pyyaml` | 停止并报告依赖缺失 |
 | Git | 可选增强 | 安装 Git | 仍可生成本地镜像，但不能提交/推送 |
 | VitePress | 可选增强 | 由目标文档仓库提供 | 仍可同步到 Obsidian |
 | Obsidian | 可选增强 | 用户本机安装 | 仍可生成普通 Markdown |
 
-私有配置默认位置：
+私有配置默认位置（与本技能的凭证配置 `config.yml` 分开放）：
 
 ```text
-~/.config/soia-skills/soia-cwork-feishu-doc-git-sync/config.yml
+~/.config/soia-skills/soia-cwork-feishu-cli/doc-git-sync.yml
 ```
 
-也可以使用 `SOIA_CWORK_FEISHU_DOC_GIT_SYNC_CONFIG_FILE` 指定配置文件。参考 [assets/config.example.yml](assets/config.example.yml)。
+查找顺序：`--config` → 环境变量 `SOIA_CWORK_FEISHU_DOC_GIT_SYNC_CONFIG_FILE`（沿用原名）→ 上面的新位置 → 旧技能名目录 `~/.config/soia-skills/soia-cwork-feishu-doc-git-sync/config.yml` → 更早的 `~/.config/soia-skills/soia-open-skills/cwork/soia-cwork-feishu-doc-git-sync/config.yml`。旧位置只读回退：已有配置照常生效，脚本不搬移、不改写、不删除它；新建配置写新位置。参考 [../assets/doc-git-sync.config.example.yml](../assets/doc-git-sync.config.example.yml)。
 
 最小配置示例：
 
@@ -233,8 +191,8 @@ sync:
 - 下载资源时，优先按飞书媒体 token 去重；同一附件或图片即使带有不同的短期签名 URL，也只保留一份本地资源。无 token 的资源仍按 URL 内容寻址。
 - `sync.localize_internal_links: true` 时，已同步的 Wiki/文档引用会改为相对本地 Markdown 链接；`sync.render_sub_page_navigation: true` 时，飞书导出的 `<sub-page-list>` 会改为本地 Markdown 子页面导航。两项均默认关闭，不影响已有外链行为。
 - `sync.change_ledger: true` 时，会在同步元数据下按运行生成新增、修改、移动和远端删除的变更台账；修改项只保留受 `change_ledger_max_diff_lines` 限制的 diff，不复制文档全文，也不改变生成镜像或本地补录目录。
-- `sheet` 默认只生成元数据 stub。经用户明确授权全库有界快照后，设置 `sync.sheets.enabled: true` 与 `all_nodes: true`，同步器会用 `sheets +workbook-info` 自动发现每个独立 Sheet 的网格子表，再按 `max_rows`、`max_columns`、`max_cells`、`max_chars` 上限调用 `sheets +csv-get`；响应截断时按 `actual_range` 分行续读。也可继续用 `selections` 精确声明单个范围。混合工作簿中的 Base 子表只有在 `include_bitable_tabs: true` 时才按 `max_bitable_records` 有界读取，否则节点失败，不能静默跳过；若 Base 权限不足，已读出的普通 Sheet 仍落盘，但节点保持 `failed` 并写入明确缺口标记。`all_nodes` 验收会拒绝任何 `metadata_stub`、缺少真实表格标记的 Sheet 节点或未归档的 Base 子表。完整契约见 [references/sheet-mirroring.yml](references/sheet-mirroring.yml)。
-- 飞书 Markdown 可能只返回 `<sheet>` 引用而不返回任何单元格。同步器不得删除该引用后仍报告完整成功：未授权下钻时保留可见缺口并使验收失败；仅当 `sync.embedded_sheets.enabled` 且明确选择 `all_docx: true` 或 `node_tokens` 时，才读取文档 XML 并在配置上限内生成“嵌入式表格”快照。首次启用会补扫旧文档；快照不会伪装成交互式原表。完整范围契约见 [references/sheet-mirroring.yml](references/sheet-mirroring.yml)。
+- `sheet` 默认只生成元数据 stub。经用户明确授权全库有界快照后，设置 `sync.sheets.enabled: true` 与 `all_nodes: true`，同步器会用 `sheets +workbook-info` 自动发现每个独立 Sheet 的网格子表，再按 `max_rows`、`max_columns`、`max_cells`、`max_chars` 上限调用 `sheets +csv-get`；响应截断时按 `actual_range` 分行续读。也可继续用 `selections` 精确声明单个范围。混合工作簿中的 Base 子表只有在 `include_bitable_tabs: true` 时才按 `max_bitable_records` 有界读取，否则节点失败，不能静默跳过；若 Base 权限不足，已读出的普通 Sheet 仍落盘，但节点保持 `failed` 并写入明确缺口标记。`all_nodes` 验收会拒绝任何 `metadata_stub`、缺少真实表格标记的 Sheet 节点或未归档的 Base 子表。完整契约见 [doc-git-sync-sheet-mirroring.yml](doc-git-sync-sheet-mirroring.yml)。
+- 飞书 Markdown 可能只返回 `<sheet>` 引用而不返回任何单元格。同步器不得删除该引用后仍报告完整成功：未授权下钻时保留可见缺口并使验收失败；仅当 `sync.embedded_sheets.enabled` 且明确选择 `all_docx: true` 或 `node_tokens` 时，才读取文档 XML 并在配置上限内生成“嵌入式表格”快照。首次启用会补扫旧文档；快照不会伪装成交互式原表。完整范围契约见 [doc-git-sync-sheet-mirroring.yml](doc-git-sync-sheet-mirroring.yml)。
 - `sync.sheets.preserve.enabled: true` 会在同一选定范围另存单元格值、公式、样式、批注，以及工作表布局、图表和浮动图片元数据的 JSON 快照；可额外开启透视、筛选、条件格式和迷你图元数据。它不把图表或图片伪装成原生 Markdown。完整工作簿需在用户明确批准后同时设置 `sync.sheets.workbook_exports.enabled: true` 和 `all_nodes: true`，同步器会用 `drive +export` 分批生成 `.xlsx` 并在 Sheet 索引中链接。
 - 异步 Sheet 导出未在首轮轮询完成时，会把导出任务票据保存在生成目录的私有快照中；后续批次只轮询同一任务，并在就绪后使用 `drive +export-download` 下载，不会反复创建相同工作簿导出任务。`manifest.stats.sheet_workbooks_pending` 表示仍在飞书端处理的数量。
 - 图片/附件本地化是显式 opt-in 的本地数据下载；不能因为用户只要求“检查图片”就下载全部素材。持久化配置中的 `sync.download_assets: true` 只能视为用户此前对该资源范围的明确授权，不得扩展为表格或多维表格导出授权。若先执行 Sheet/Base/文件的结构初始化并使用 `--skip-assets` 避免输出锁冲突，必须在初始化结束后单独执行资源本地化批次；`--skip-assets` 不会把图片或附件标记为已下载。
@@ -245,24 +203,9 @@ sync:
 - 图片下载使用 URL 内容寻址文件名，重复同步会复用已有资源；Markdown 的普通 URL 与 `(<https://…>)` 尖括号 URL 都会进入同一下载队列。可通过 `asset_workers`、`asset_timeout_seconds`、`asset_download_attempts`、`max_asset_bytes` 限制并发、超时、媒体重试和单文件大小；单资源默认上限为 50 MiB，可在私有配置中按已确认的下载范围调低或调高。携带飞书媒体 token 的附件遇到短暂或未归类 CLI 失败时会在上限内重试；明确的权限不足、资源不存在或 `asset_too_large` 不会盲目重试。大型存量镜像可设置正整数 `asset_batch_size`：每次只请求该数量的尚未落盘资源，已下载资源仍会被本地化改写；`asset_refreshed_batch_size` 可限制同一批已刷新文档的新链接下载量。重复执行并以 `--validate-only` 确认完成。manifest 会报告本轮 `assets_deferred`。下载失败只保留原 URL，并在 manifest 的 `assets_failed` 计数中报告，不把鉴权 URL 写入日志或清单。
 - `<source token="...">` 或无 URL 的 `<img token="...">` 会调用官方 `docs +media-download`；远程 URL 不可直接读取时，需要按权限清单补充 `docs:document.media:download` 或 `drive:file:download`，并在私有配置中启用本地资源下载。没有下载权限时不得猜测本地资源已经完整。
 
-## 安全规则
+## 安全规则与私密数据
 
-- 不在公开 skill、Obsidian vault、Markdown、Git 提交、终端输出或最终回复中写入 App Secret、access token、cookie。
-- 终端日志、进度回执和最终回复不得输出本地绝对路径、具体本地文件名、操作系统用户名、用户名、密码、App Secret、access token 或私有下载 URL；统一使用脱敏占位符，只报告状态、数量和错误类别。详见 [references/output-redaction.yml](references/output-redaction.yml)。
-- 不默认调用飞书创建、更新、删除接口。
-- `drive +export`、`drive +export-download`、`docs +media-download` 和附件下载均属于数据导出/下载动作；用户说“看下能否导出”时只做 inspect、help、schema 或 dry-run，不得直接创建本地文件。
-- Sheet 与 Base 值镜像都属于敏感数据落盘：只有用户明确确认需要将选定范围/表同步到本地工作区，并在私有配置中写入有界 `sync.sheets.selections` 或受限 `sync.bitables.selections` 后才可启用；该确认不授权任何工作簿导出、未选附件下载或自动 Git 提交。
-- 真实导出前必须明确回执来源、类型、格式、预计文件数、输出目录和 Git 追踪策略；“检查能力”不等于“授权导出”。
-- 导出文件默认放在临时目录或用户明确指定的目录；只有经用户明确确认的完整镜像初始化才能写入生成目录下的 `_exports/` 或 `_assets/`，并且不得自动提交 Git、自动推送远程或写回飞书。
-- bot 无权访问的个人云盘或私有资源必须报告为不可见，不得切换 user OAuth 代为读取。
-- 不默认覆盖本地补录、删除历史文件或推送远程 Git；这些属于需要明确确认的写入/发布动作。
-- 执行前检查目标仓库、当前分支和远程地址；发现与预期不符时停止并报告。
-
-## 私密信息与中间数据
-
-- 把排除节点 ID、知识空间 ID、凭据别名和本地输出位置只写入技能私有配置，不提交公共仓库。
-- 把 active/excluded 节点清单、同步状态、侧边栏和变更台账保存在用户指定镜像的同步元数据目录；排除记录只用于证明未抓取范围，不包含正文。
-- 把临时下载和接口中间结果交给系统临时目录；只把用户授权的 Markdown、表格快照和资源文件写入交付目录。
+同步的安全规则、私密信息与中间数据约定写在入口 [../SKILL.md](../SKILL.md) 的「同步安全规则」「同步的私密信息与中间数据」两节，执行前必读，这里不重复。
 
 ## 日志与完成回执
 
@@ -278,24 +221,24 @@ sync:
 
 ## Resources
 
-- 权限与权限申请分层：[references/permissions.yml](references/permissions.yml)
-- 飞书 CLI 命令与权限申请流程：同仓库 `soia-cwork-feishu-cli/references/cli-workflows.md` 和 `soia-cwork-feishu-cli/references/permissions.md`。
-- 事件订阅与增量目标：[references/events.yml](references/events.yml)
-- 同步策略：[references/sync-policy.yml](references/sync-policy.yml)
-- 文档格式转换：[references/block-mapping.yml](references/block-mapping.yml)
-- Sheet 范围镜像：[references/sheet-mirroring.yml](references/sheet-mirroring.yml)
-- 富资源镜像能力与边界：[references/rich-resource-mirroring.yml](references/rich-resource-mirroring.yml)
-- 表格/多维表格导出安全策略：[references/export-policy.yml](references/export-policy.yml)
-- 日志与回复脱敏策略：[references/output-redaction.yml](references/output-redaction.yml)
-- Git 与 VitePress 接入：[references/git-vitepress.yml](references/git-vitepress.yml)
-- 私有配置模板：[assets/config.example.yml](assets/config.example.yml)
+- 权限与权限申请分层：[doc-git-sync-permissions.yml](doc-git-sync-permissions.yml)
+- 飞书 CLI 命令与权限申请流程：[cli-workflows.md](cli-workflows.md) 和 [permissions.md](permissions.md)。
+- 事件订阅与增量目标：[doc-git-sync-events.yml](doc-git-sync-events.yml)
+- 同步策略：[doc-git-sync-sync-policy.yml](doc-git-sync-sync-policy.yml)
+- 文档格式转换：[doc-git-sync-block-mapping.yml](doc-git-sync-block-mapping.yml)
+- Sheet 范围镜像：[doc-git-sync-sheet-mirroring.yml](doc-git-sync-sheet-mirroring.yml)
+- 富资源镜像能力与边界：[doc-git-sync-rich-resource-mirroring.yml](doc-git-sync-rich-resource-mirroring.yml)
+- 表格/多维表格导出安全策略：[doc-git-sync-export-policy.yml](doc-git-sync-export-policy.yml)
+- 日志与回复脱敏策略：[doc-git-sync-output-redaction.yml](doc-git-sync-output-redaction.yml)
+- Git 与 VitePress 接入：[doc-git-sync-git-vitepress.yml](doc-git-sync-git-vitepress.yml)
+- 私有配置模板：[../assets/doc-git-sync.config.example.yml](../assets/doc-git-sync.config.example.yml)
 
 ## Validation
 
 ```bash
-python3 scripts/sync_feishu_wiki.py --help
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --dry-run
-python3 scripts/sync_feishu_wiki.py --config <private-config.yml> --validate-only
+python3 <skill-path>/scripts/sync_feishu_wiki.py --help
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --dry-run
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --validate-only
 git diff --check
 ```
 

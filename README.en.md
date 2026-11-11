@@ -6,13 +6,13 @@
 
 **Turn team material locked inside SaaS into local files you can search, edit and commit**
 
-3 skills: read-only Feishu research, knowledge-base sync, ProcessOn diagram archiving. Read-only by default; writes need your authorization
+2 skills: read-only Feishu research with knowledge-base sync, and ProcessOn diagram archiving. Read-only by default; writes need your authorization
 
 [中文](README.md) · English · [Ecosystem portal](https://github.com/soia-team/soia-open-skills)
 
 <p align="center">
   <img alt="plugin version" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsoia-team%2Fsoia-open-cwork-office-skills%2Fmain%2F.claude-plugin%2Fplugin.json&query=%24.version&label=plugin&color=F5A623&prefix=v">
-  <img alt="skills" src="https://img.shields.io/badge/skills-3-brightgreen">
+  <img alt="skills" src="https://img.shields.io/badge/skills-2-brightgreen">
   <img alt="hosts" src="https://img.shields.io/badge/hosts-Claude%20%C2%B7%20Codex%20%C2%B7%20WorkBuddy-8A2BE2">
   <img alt="always-on cost" src="https://img.shields.io/badge/always--on-~309%20tok-lightgrey">
   <img alt="license" src="https://img.shields.io/github/license/soia-team/soia-open-cwork-office-skills?color=blue">
@@ -34,14 +34,13 @@ flowchart LR
     E["ProcessOn diagrams"] --> F["Inventory → per-item consent<br/>export → verify → archive"]
 ```
 
-## 3 skills
+## 2 skills
 
 ### 01 Feishu　`Wiki and cloud docs → reviewable local Markdown`
 
 | Skill | Responsibility | Ready |
 |---|---|:-:|
-| [`soia-cwork-feishu-cli`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-cli.md) | Read-only research across Wiki, Drive and docs via the official `lark-cli` with least-privilege scopes | 🟡 |
-| [`soia-cwork-feishu-doc-git-sync`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-doc-git-sync.md) | **One-way** sync to local Markdown as an app identity, preserving structure, source links and sync metadata | 🟡 |
+| [`soia-cwork-feishu-cli`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-cli.md) | Read-only research across Wiki, Drive and docs via the official `lark-cli` with least-privilege scopes; **one-way** sync to local Markdown as an app identity, preserving structure, source links and sync metadata | 🟡 |
 
 ### 02 Diagrams　`ProcessOn diagrams → an archive whose completeness was verified`
 
@@ -49,11 +48,13 @@ flowchart LR
 |---|---|:-:|
 | [`soia-cwork-processon-diagrams`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-processon-diagrams.md) | Inventories diagrams, exports the ones you authorize item by item, verifies completeness, then archives | 🟡 |
 
-🟡 All three need a platform login or app authorization first; each tells you exactly what is missing before it runs
+🟡 Both need a platform login or app authorization first; each tells you exactly what is missing before it runs
 
 ## Install
 
-Any of three hosts. Installing the domain plugin brings all 3 skills at once.
+Any of three hosts. Installing the domain plugin brings both skills at once.
+
+Publishing and local installation are separate: the default is one skill for one project and one explicit host. Global, whole-domain or all-host scope requires an explicit choice and a dry-run first; publishing never syncs to local hosts automatically.
 
 ```bash
 claude plugin marketplace add soia-team/soia-open-skills && claude plugin install soia-cwork-office@soia
@@ -72,7 +73,7 @@ python3 <soia-open-skills>/skills/soia-meta-skill-release/scripts/install_workbu
 Restart the client, then summon **Soia · 办公资料助手** under Experts → My Experts.
 
 > **Always-on cost ~309 tok**, among the lightest domain plugins. `claude plugin disable soia-cwork-office@soia` drops it to zero.
-> For a single skill use npx: `npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s <skill-name> -y` — pick one route or the other; running both puts the same skill in the index twice and the copies drift apart.
+> Single skill, project scope: `npx skills add soia-team/soia-open-cwork-office-skills -a <explicit-host> -s <skill-name>`; add `-g` only when you explicitly choose a global install. Pick this or the domain plugin, not both, so the index is not duplicated.
 
 ## What it does not do
 

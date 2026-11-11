@@ -53,4 +53,4 @@ event_file_contract:
     - event_type
     - type
     - event_name
-  command: "python3 scripts/sync_feishu_wiki.py --config <config.yml> --event-file <events.ndjson>"
+  command: "python3 <skill-path>/scripts/sync_feishu_wiki.py --config <config.yml> --event-file <events.ndjson>"
