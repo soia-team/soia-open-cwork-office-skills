@@ -3,6 +3,13 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.9.1-SNAPSHOT — 未发布
+
+README 去掉失效链接；技能功能不变
+
+## 维护
+- README 中英「环境安装」一句去掉已失效的仓库链接，改为按各工具官方文档
+
 ## v1.9.0 — 2026-11-11
 
 合并飞书两个技能（3 → 2），安装说明改为项目最小安装
