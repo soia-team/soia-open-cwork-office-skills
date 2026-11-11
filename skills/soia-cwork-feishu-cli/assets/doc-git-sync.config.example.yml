@@ -1,5 +1,6 @@
 # Copy to:
-# ~/.config/soia-skills/soia-cwork-feishu-doc-git-sync/config.yml
+# ~/.config/soia-skills/soia-cwork-feishu-cli/doc-git-sync.yml
+# An existing ~/.config/soia-skills/soia-cwork-feishu-doc-git-sync/config.yml is still read as a fallback.
 # Never commit real credentials, tenant URLs, private paths, or tokens.
 
 version: 1

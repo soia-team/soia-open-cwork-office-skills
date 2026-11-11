@@ -28,7 +28,7 @@ def load_module(name: str, relative_path: str):
 
 sync = load_module(
     "feishu_doc_sync_under_test",
-    "skills/soia-cwork-feishu-doc-git-sync/scripts/sync_feishu_wiki.py",
+    "skills/soia-cwork-feishu-cli/scripts/sync_feishu_wiki.py",
 )
 
 
@@ -36,18 +36,27 @@ class FeishuDocSyncTests(unittest.TestCase):
     def test_default_config_prefers_v2_and_falls_back_to_legacy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            current = root / "soia-cwork-feishu-doc-git-sync" / "config.yml"
+            current = root / "soia-cwork-feishu-cli" / "doc-git-sync.yml"
+            renamed = root / "soia-cwork-feishu-doc-git-sync" / "config.yml"
             legacy = root / "soia-open-skills" / "cwork" / "config.yml"
             legacy.parent.mkdir(parents=True)
             legacy.write_text("version: 1\n", encoding="utf-8")
 
             with (
                 mock.patch.object(sync, "DEFAULT_CONFIG", current),
-                mock.patch.object(sync, "LEGACY_DEFAULT_CONFIG", legacy),
+                mock.patch.object(sync, "LEGACY_DEFAULT_CONFIGS", (renamed, legacy)),
                 mock.patch.dict(sync.os.environ, {}, clear=True),
             ):
                 _, selected = sync.load_config(None)
                 self.assertEqual(selected, legacy.resolve())
+
+                # 并入 soia-cwork-feishu-cli 之前写在旧技能名目录下的配置继续生效，且不被改动。
+                renamed.parent.mkdir(parents=True)
+                renamed.write_text("version: 1\n", encoding="utf-8")
+                _, selected = sync.load_config(None)
+                self.assertEqual(selected, renamed.resolve())
+                self.assertEqual(renamed.read_text(encoding="utf-8"), "version: 1\n")
+                self.assertFalse(current.exists())
 
                 current.parent.mkdir(parents=True)
                 current.write_text("version: 2\n", encoding="utf-8")
@@ -2360,9 +2369,9 @@ class FeishuDocSyncTests(unittest.TestCase):
         policy_path = (
             REPO_ROOT
             / "skills"
-            / "soia-cwork-feishu-doc-git-sync"
+            / "soia-cwork-feishu-cli"
             / "references"
-            / "export-policy.yml"
+            / "doc-git-sync-export-policy.yml"
         )
         policy = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
         self.assertFalse(policy["defaults"]["automatic_tabular_export"])

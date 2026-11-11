@@ -87,7 +87,7 @@ errors:
     summary: 飞书接口触发限流
     recovery:
       - 使用退避重试并降低并发
-      - 若走 soia-cwork-feishu-doc-git-sync 的 sync_feishu_wiki.py 同步，大型空间可用其 --retry-failed --retry-batch-size N 分批补偿
+      - 若走本技能的 scripts/sync_feishu_wiki.py 知识库同步，大型空间可用其 --retry-failed --retry-batch-size N 分批补偿
       - 该脚本 --validate-only 的 failed_records=0、stale_records=0 可作为完成条件（lark-cli 本身无此参数）
 
   not_found:

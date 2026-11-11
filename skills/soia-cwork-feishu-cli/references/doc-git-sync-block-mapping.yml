@@ -78,4 +78,4 @@ unsupported:
     - mindnote
     - file
   special_routes:
-    bitable: "未配置时只生成元数据 stub；工作簿/xlsx/csv/base 文件导出必须遵循 references/export-policy.yml"
+    bitable: "未配置时只生成元数据 stub；工作簿/xlsx/csv/base 文件导出必须遵循 references/doc-git-sync-export-policy.yml"
