@@ -26,7 +26,6 @@ npx skills add soia-team/soia-open-cwork-office-skills -a <agent> -s soia-cwork-
 | Agent 自带 browser/computer-use | 可选诊断能力 | 只允许客户明确同意的一次性排障；禁止作为正式批量主路线 | 直接使用宿主无关 runner，不影响功能 |
 | Python 3.10+ | 本地解析与归档依赖 | 系统 Python 即可 | 只完成浏览器侧盘点/导出 |
 | PyYAML | 私有配置可选依赖 | 使用 `config.yml` 时安装：`python3 -m pip install pyyaml` | 改用 CLI 参数、环境变量或安全默认值 |
-| `soia-dev-drawio-visio-diagrams` | VSDX 理解/升级可选依赖 | 从同一 SOIA skills 仓安装 | 仍可下载和归档 VSDX，但不做 draw.io 转换与元素级升级 |
 | ProcessOn API 服务 | 可选商业能力 | 企业按官方流程申请 JS-SDK/格式转换凭证 | 不影响普通账号的浏览器工作流 |
 
 私有配置默认位置：

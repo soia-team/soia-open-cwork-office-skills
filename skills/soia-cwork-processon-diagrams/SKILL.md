@@ -6,8 +6,6 @@ created_at: 2026-07-20 18:57:53
 updated_at: 2026-08-05 13:30:00
 created_by: gpt-5.6-sol
 updated_by: claude-opus-5
-dependencies:
-  optional: [soia-dev-drawio-visio-diagrams]
 ---
 
 # ProcessOn 图表浏览与导出
@@ -175,7 +173,7 @@ python3 scripts/diff_processon_inventory.py \
 | 用户目标 / 文件 | 调用路线 | 输出与边界 |
 |---|---|---|
 | POS、XMind、SVG、图片、PDF 的内容盘点 | 本技能 `inspect_processon_export.py` | 只读标题、节点文字、尺寸、校验值；缩略图级证据不能冒充结构化原文 |
-| VSDX 的读取、转 draw.io、可编辑升级 | `soia-dev-drawio-visio-diagrams` | 先前向验证 VSDX，再转 `.drawio` 真源；任何图形升级须有用户具体目标 |
+| VSDX 的读取、转 draw.io、可编辑升级 | 不在本技能范围；由用户用 draw.io 等工具另行处理 | 本技能只下载、校验和归档 VSDX；任何图形升级须有用户具体目标 |
 | 仅需看图 | ProcessOn “浏览”视图或导出预览 | 记录 DOM 文字、视觉截图或缩略图证据，并区分明确文字与布局推断 |
 
 浏览器不可用、账号未登录或真实可见安全验证未完成时，让客户手动导出 VSDX/POS/PNG/PDF/XMind，再从阶段 2 的本地归档入口继续。
