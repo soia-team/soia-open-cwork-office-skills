@@ -10,7 +10,6 @@
   ],
   "skills": [
     "./skills/soia-cwork-feishu-cli",
-    "./skills/soia-cwork-feishu-doc-git-sync",
     "./skills/soia-cwork-processon-diagrams"
   ],
   "expertType": "agent",

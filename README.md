@@ -6,13 +6,13 @@
 
 **把锁在 SaaS 里的团队资料，变成本地能搜、能改、能进 Git 的文件**
 
-3 个技能：飞书只读调研、知识库同步、ProcessOn 图表归档。默认只读，写操作必须授权
+2 个技能：飞书只读调研与知识库同步、ProcessOn 图表归档。默认只读，写操作必须授权
 
 [English](README.en.md) · 中文 · [全生态门户](https://github.com/soia-team/soia-open-skills)
 
 <p align="center">
   <img alt="plugin version" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsoia-team%2Fsoia-open-cwork-office-skills%2Fmain%2F.claude-plugin%2Fplugin.json&query=%24.version&label=plugin&color=F5A623&prefix=v">
-  <img alt="skills" src="https://img.shields.io/badge/技能-3-brightgreen">
+  <img alt="skills" src="https://img.shields.io/badge/技能-2-brightgreen">
   <img alt="hosts" src="https://img.shields.io/badge/宿主-Claude%20%C2%B7%20Codex%20%C2%B7%20WorkBuddy-8A2BE2">
   <img alt="always-on cost" src="https://img.shields.io/badge/常驻-~309%20tok-lightgrey">
   <img alt="license" src="https://img.shields.io/github/license/soia-team/soia-open-cwork-office-skills?color=blue">
@@ -34,14 +34,13 @@ flowchart LR
     E["ProcessOn 图表"] --> F["盘点 → 逐项授权<br/>导出 → 校验 → 归档"]
 ```
 
-## 3 个技能
+## 2 个技能
 
 ### 01 飞书　`Wiki 与云文档 → 可复核的本地 Markdown`
 
 | 技能 | 职责 | 开箱 |
 |---|---|:-:|
-| [`soia-cwork-feishu-cli`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-cli.md) | 通过官方 `lark-cli` 以最小权限只读调研 Wiki、Drive 与文档 | 🟡 |
-| [`soia-cwork-feishu-doc-git-sync`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-doc-git-sync.md) | 以应用身份**单向**同步为本地 Markdown，保留目录、来源与同步元数据 | 🟡 |
+| [`soia-cwork-feishu-cli`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-feishu-cli.md) | 通过官方 `lark-cli` 以最小权限只读调研 Wiki、Drive 与文档；以应用身份**单向**同步为本地 Markdown，保留目录、来源与同步元数据 | 🟡 |
 
 ### 02 图表　`ProcessOn 图表 → 校验过完整性的归档`
 
@@ -49,11 +48,11 @@ flowchart LR
 |---|---|:-:|
 | [`soia-cwork-processon-diagrams`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-cwork-processon-diagrams.md) | 盘点图表，按逐项授权导出，校验完整性后归档 | 🟡 |
 
-🟡 三个技能都需先完成对应平台的登录或应用授权，技能会在执行前告诉你缺什么
+🟡 两个技能都需先完成对应平台的登录或应用授权，技能会在执行前告诉你缺什么
 
 ## 安装
 
-三个宿主任选，装整个领域插件即 3 个技能一次到位。
+三个宿主任选，装整个领域插件即 2 个技能一次到位。
 
 ```bash
 claude plugin marketplace add soia-team/soia-open-skills && claude plugin install soia-cwork-office@soia

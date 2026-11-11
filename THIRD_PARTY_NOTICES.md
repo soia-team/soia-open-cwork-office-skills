@@ -7,7 +7,7 @@
 
 | Upstream | License snapshot | Used by | Relationship |
 |---|---|---|---|
-| [larksuite/cli](https://github.com/larksuite/cli) | MIT | `soia-cwork-feishu-cli`, `soia-cwork-feishu-doc-git-sync` | Official Feishu/Lark CLI invoked at runtime. |
+| [larksuite/cli](https://github.com/larksuite/cli) | MIT | `soia-cwork-feishu-cli` | Official Feishu/Lark CLI invoked at runtime. |
 | [PyYAML](https://pypi.org/project/PyYAML/) | MIT | `soia-cwork-processon-diagrams` | Optional dependency for reading a user-owned YAML config path. |
 
 ## Online services
