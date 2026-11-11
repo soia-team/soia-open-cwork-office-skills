@@ -3,7 +3,7 @@
 > 一次性配置。装好之后日常执行不需要再读本文件。
 
 
-安装本技能：
+整域需明确选择：
 
 ```bash
 claude plugin marketplace add soia-team/soia-open-skills
@@ -13,10 +13,10 @@ claude plugin marketplace add soia-team/soia-open-skills
 claude plugin install soia-cwork-office@soia
 ```
 
-只要这一个技能时，可用 npx 路线。注意技能会落进共享真源 `~/.agents/skills`；若同时装了插件，同一技能会出现两份索引且各自漂移，建议二选一：
+默认项目单技能（`<agent>` 换成明确宿主，执行前核实当前参数；仅明确选择全局时加 `-g`）。与域插件二选一，避免双份索引各自漂移：
 
 ```bash
-npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s soia-cwork-processon-diagrams -y
+npx skills add soia-team/soia-open-cwork-office-skills -a <agent> -s soia-cwork-processon-diagrams
 ```
 
 | 依赖 | 类型 | 安装 / 配置 | 缺失时怎么处理 |

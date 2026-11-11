@@ -54,6 +54,8 @@ flowchart LR
 
 三个宿主任选，装整个领域插件即 2 个技能一次到位。
 
+发布与本机安装分开：默认按项目、明确宿主、单个技能定向安装；全局、整域或全宿主范围只有客户明确选择并先看 dry-run 后执行，发布不会自动同步到本机。
+
 ```bash
 claude plugin marketplace add soia-team/soia-open-skills && claude plugin install soia-cwork-office@soia
 ```
@@ -71,7 +73,7 @@ python3 <soia-open-skills>/skills/soia-meta-skill-release/scripts/install_workbu
 装完重启客户端，在【专家中心 → 我的专家】召唤 **Soia · 办公资料助手**。
 
 > **常驻成本 ~309 tok**，全生态最轻的领域插件之一。不用时 `claude plugin disable soia-cwork-office@soia` 降到零。
-> 只想要单个技能可走 npx：`npx skills add soia-team/soia-open-cwork-office-skills -g -a '*' -s <技能名> -y`——与插件二选一，并存会产生双份索引且各自漂移。
+> 项目单技能：`npx skills add soia-team/soia-open-cwork-office-skills -a <明确宿主> -s <技能名>`；仅明确选择全局时加 `-g`。与域插件二选一，避免双份索引各自漂移。
 
 ## 不负责什么
 
