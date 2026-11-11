@@ -1,6 +1,6 @@
 {
   "name": "soia-cwork-office",
-  "version": "1.2.0",
+  "version": "1.2.1-SNAPSHOT",
   "description": "Office & content aide: read-only Feishu research with one-way sync to local Markdown, authorized ProcessOn diagram export and archiving; turns your opinions into drafts with imagery and adapts them for WeChat, Rednote and X — drafts only, never publishes.",
   "author": {
     "name": "soia-team"
