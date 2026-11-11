@@ -81,7 +81,7 @@ Restart the client, then summon **Soia · 办公资料助手** under Experts →
 - **Sync is one-way.** The local copy is a read-only mirror; editing it does not and should not push back.
 - **Does not store credentials.** Feishu app credentials and ProcessOn sessions stay with the official flows and with you — never in the repo, the logs, or the synced output.
 - **Does not send company material anywhere.** Synced content stays local; nothing is uploaded to third-party services.
-- **Does not install environments.** `lark-cli` and browser-automation prerequisites belong to [soia-open-env-skills](https://github.com/soia-team/soia-open-env-skills).
+- **Does not install environments.** For `lark-cli` and browser-automation prerequisites, follow each tool's official documentation.
 
 ## Contributing
 

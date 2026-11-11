@@ -81,7 +81,7 @@ python3 <soia-open-skills>/skills/soia-meta-skill-release/scripts/install_workbu
 - **同步是单向的**。本地是平台的只读副本；改了本地不会也不该被推回去。
 - **不保存凭据**。飞书应用凭据、ProcessOn 登录态由官方流程与你自己持有，不进仓库、不进日志、不写进同步产物。
 - **不外发公司资料**。同步下来的内容留在本地，不上传第三方服务。
-- **不做环境安装**。`lark-cli`、浏览器自动化依赖交给 [soia-open-env-skills](https://github.com/soia-team/soia-open-env-skills)。
+- **不做环境安装**。`lark-cli`、浏览器自动化依赖的环境安装请按各工具官方文档。
 
 ## 贡献
 
