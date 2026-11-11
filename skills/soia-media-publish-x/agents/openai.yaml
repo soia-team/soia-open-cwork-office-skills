@@ -1,0 +1,4 @@
+interface:
+  display_name: "Media Publish X"
+  short_description: "把成文拆成 ≤280 字符的 X thread（可按授权存草稿或发布），或把 Markdown 直传 X Articles 草稿箱并校验，只存草稿。"
+  default_prompt: "Use soia-media-publish-x: 把这篇文章拆成带 (1/N) 编号的 X 推文串，保留链接和代码完整性；如果我要的是长文，就上传到 X Articles 草稿箱并给我草稿 URL。"

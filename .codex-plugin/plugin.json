@@ -1,23 +1,27 @@
 {
   "name": "soia-cwork-office",
   "version": "1.9.2-SNAPSHOT",
-  "description": "办公协作技能：飞书知识库与云盘、ProcessOn 图表",
+  "description": "办公与内容技能：飞书知识库与云盘、ProcessOn 图表；文章成文、文章图片与公众号、X、小红书发布",
   "author": {
     "name": "soia-team"
   },
   "interface": {
-    "displayName": "办公协作技能库",
-    "shortDescription": "飞书知识库与云盘、ProcessOn 图表",
-    "longDescription": "覆盖飞书知识库、云文档、云盘同步与 ProcessOn 图表归档的办公协作技能。",
+    "displayName": "办公与内容技能库",
+    "shortDescription": "飞书与 ProcessOn 资料落本地；文章成文、配图与多平台发布",
+    "longDescription": "覆盖飞书知识库、云文档、云盘同步与 ProcessOn 图表归档的办公协作技能，以及撰写文章、生成封面与小结卡、适配微信公众号、X 和小红书内容发布的内容技能。",
     "developerName": "soia-team",
     "category": "Productivity",
     "capabilities": [
       "飞书协作",
       "文档同步",
-      "图表归档"
+      "图表归档",
+      "文章创作",
+      "封面设计",
+      "多平台发布"
     ],
     "defaultPrompt": [
-      "请整理并同步这批办公文档与协作图表。"
+      "请整理并同步这批办公文档与协作图表。",
+      "请把这份素材改写成适合目标平台发布的完整内容。"
     ],
     "websiteURL": "https://github.com/soia-team/soia-open-cwork-office-skills",
     "composerIcon": "./assets/icon.svg",

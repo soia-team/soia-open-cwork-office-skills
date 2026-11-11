@@ -1,6 +1,6 @@
 # soia-open-cwork-office-skills
 
-公开技能仓：soia-cwork-* 办公。客户不共享维护者的机器、账号和私有工作区；仓名不触发 SOIA 产品 proposal/board 流程。
+公开技能仓：soia-cwork-* 办公与 soia-media-* 内容（域展示名「办公与内容」）。客户不共享维护者的机器、账号和私有工作区；仓名不触发 SOIA 产品 proposal/board 流程。
 
 ## 边界
 
