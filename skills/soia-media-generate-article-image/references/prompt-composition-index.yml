@@ -1,0 +1,595 @@
+schema_version: 2
+
+# This is a lookup index, not a list of finished prompts.  A request is
+# normalized into axes and then compiled through the common prompt blocks.
+purpose: "让模型标签、家族、使用场景、信息结构、视觉机制、美学系统和批量策略可以自由组合，而不是为每个组合新增 preset"
+
+family_catalog: prompt-family-catalog.md
+block_contract: prompt-block-contract.yml
+forward_test_matrix: prompt-forward-test-matrix.yml
+
+# 客户选择入口：这是渐进式加载的第一层，先展示摘要，选定后才读取详细词条。
+support_catalog:
+  schema_version: 1
+  counts:
+    delivery_presets: 7
+    prompt_families: 11
+    information_structures: 8
+    visual_mechanisms: 14
+    aesthetic_systems: 9
+    text_strategies: 6
+    asset_roles: 6
+    logo_variants: 4
+    prompt_source_routes: 1
+  delivery_presets_source: "template-registry.yml#templates"
+  supported_delivery_presets:
+    - id: editorial_research_minimal
+      label: 研究编辑极简封面
+      image_types: [cover, summary_card]
+      choose_when: "文章封面或正文小结需要留白、强标题、主题隐喻和克制配色"
+      usage: "preset=editorial_research_minimal; family=poster_type_stage 或 travel_publication"
+    - id: editorial_summary_card
+      label: 正文小结卡
+      image_types: [summary_card]
+      choose_when: "把一个章节或观点压缩成可嵌入正文的中密度信息卡"
+      usage: "preset=editorial_summary_card; information_structure=knowledge_card"
+    - id: cornell_notes
+      label: 康奈尔学习笔记
+      image_types: [learning_note, summary_card]
+      choose_when: "需要问题线索、模块化笔记、回顾总结和一句话记忆；复杂文章可按密度生成 1–6 页"
+      usage: "preset=cornell_notes; information_structure=knowledge_card; batch_strategy=adaptive_series; output_mode=poster"
+    - id: godot_pixel_metaphor
+      label: 像素视觉隐喻封面
+      image_types: [cover, poster]
+      choose_when: "用一个游戏世界或像素场景表达文章的单一核心冲突"
+      usage: "preset=godot_pixel_metaphor; family=pixel_play; visual_mechanism=pixel_dissolution"
+    - id: social_skill_catalog
+      label: 技能库宣传卡/轮播
+      image_types: [social_card, carousel]
+      choose_when: "推荐开源仓库、重点技能或插件集合，要求高信息密度和可核验 CTA"
+      usage: "preset=social_skill_catalog; use_case=repository_recommendation 或 featured_skill; output_mode=poster/carousel"
+    - id: plugin_icon
+      label: 插件/应用图标
+      image_types: [icon]
+      choose_when: "需要插件市场图标或技能库标识；最终图标还要确定性矢量重绘"
+      usage: "preset=plugin_icon; output_mode=poster; asset_role=brand_asset"
+    - id: brand_logo
+      label: 品牌 Logo 系统
+      image_types: [logo]
+      choose_when: "需要新品牌的图形标、字标、组合锁定、黑白反白和应用变体"
+      usage: "preset=brand_logo; family=brand_identity; information_structure=logo_system; output_mode=logo"
+  selection_policy:
+    ambiguous_when:
+      - "没有 image_type/purpose，且只说‘生成图片/做海报/做得好看’"
+      - "同时给出多个主题但没有说明单张、PPT、轮播还是物料包"
+      - "没有提供或选择参考图角色，却要求模仿一个外部风格"
+    first_response:
+      - "先展示 counts 和 supported_families 摘要，不读取全部长 Prompt"
+      - "让客户选择 delivery_preset 或 family；可继续指定信息结构和输出形态"
+      - "选择 brand_logo 时，再确认品牌名称、图形概念、字标、Logo 变体和是否已有批准字体/路径"
+      - "输入为 X profile Prompt Deck 时，展示 x_profile_prompt_evolution 路线，说明它会拆分底座/佐料/系列变量后再生图"
+      - "客户选择后，只加载该选择对应的 mechanism/aesthetic/structure/text references"
+    defaulting:
+      - "只有客户明确说‘直接生成’且用途/输出形态足够明确时才自动选择"
+      - "自动选择必须在回执中记录 assumptions，不得静默套用早安或字体蒙版"
+    never: "不得因请求含有‘美学、质感、高级感’就自动创建新 preset"
+  prompt_source_routes:
+    - id: x_profile_prompt_evolution
+      label: X 公开提示词进化导入
+      choose_when: "输入来自 soia-pkm-clip-x-profile 的 image-prompts.yml，需要把来源提示词转为 image 技能能力"
+      usage: "python3 scripts/import_x_profile_prompt_deck.py --input <run>/image-prompts.yml --output <dir>/x-profile-evolution"
+      outputs: [evolution.yml, series-index.yml, bibles/<family>.md, prompts/*.md, manifest.yml]
+      render_modes: [hybrid_exact_text]
+      render_policy: "X source route may use hybrid_exact_text across observed families; exact CJK fields still require bitmap and view_image checks."
+      audit: "python3 scripts/audit_x_profile_prompt_deck.py --input <run>/image-prompts.yml --output <dir>/gap-report.md"
+      does_not_create: "账号/月份专属 preset；模型标签依赖；真实 X 抓取能力"
+  supported_families:
+    - id: morning_city
+      label: 城市早安
+      choose_when: "城市问候、早安、地点系列、日期和今日宜忌"
+      default_structure: knowledge_card
+      common_mechanisms: [typographic_mask, travel_editorial_narrative, foreground_depth]
+      common_aesthetics: [editorial_aesthetic, travel_publication]
+      usage: "family=morning_city; information_structure=knowledge_card; batch_strategy=series"
+    - id: poster_type_stage
+      label: 金句/主题海报
+      choose_when: "一句话主张、活动宣言、人物海报或需要停止滚动的单张"
+      default_structure: single_hook
+      common_mechanisms: [oversized_type, color_field_stage, foreground_depth]
+      common_aesthetics: [bright_modern, editorial_aesthetic]
+      usage: "family=poster_type_stage; information_structure=single_hook"
+    - id: presentation_grid
+      label: PPT/课程/招商手册
+      choose_when: "PPT、课件、课程介绍、招商手册或需要跨页一致性"
+      default_structure: deck_series
+      common_mechanisms: [modular_grid, oversized_type, foreground_depth]
+      common_aesthetics: [bright_modern, editorial_aesthetic, archival_historical]
+      usage: "family=presentation_grid; information_structure=deck_series; batch_strategy=series"
+    - id: travel_publication
+      label: 旅行刊物叙事
+      choose_when: "城市/旅行主体、环境叙事、倒影、边注和杂志密度"
+      default_structure: deck_series
+      common_mechanisms: [travel_editorial_narrative, mirror_reflection, foreground_depth]
+      common_aesthetics: [travel_publication, editorial_aesthetic]
+      usage: "family=travel_publication; visual_mechanism=travel_editorial_narrative"
+    - id: portrait_identity
+      label: 人像/写真
+      choose_when: "女生/男生写真、家庭照、宠物、婴儿照或锁定五官"
+      default_structure: portrait_brief
+      common_mechanisms: [identity_lock, cinematic_lighting, foreground_depth]
+      common_aesthetics: [portrait_editorial, ceremonial_soft]
+      usage: "family=portrait_identity; information_structure=portrait_brief; asset_role=identity_reference"
+    - id: event_people
+      label: 活动/会议/展会
+      choose_when: "会议、展会、博览会、活动主海报、邀请函和人物物料"
+      default_structure: campaign_pack
+      common_mechanisms: [commercial_stage, oversized_type, modular_grid]
+      common_aesthetics: [bright_modern, ceremonial_soft]
+      usage: "family=event_people; information_structure=campaign_pack"
+    - id: celebration_ceremony
+      label: 生日/婚礼/纪念
+      choose_when: "生日、婚礼、婚纱、请柬、纪念日和祝福物料"
+      default_structure: campaign_pack
+      common_mechanisms: [mirror_reflection, identity_lock, cinematic_lighting]
+      common_aesthetics: [ceremonial_soft, portrait_editorial]
+      usage: "family=celebration_ceremony; batch_strategy=campaign_pack"
+    - id: hospitality_food
+      label: 酒店/食物/饮料
+      choose_when: "酒店宣传、菜品、饮料、菜单、招聘或餐饮活动"
+      default_structure: campaign_pack
+      common_mechanisms: [material_closeup, commercial_stage, foreground_depth]
+      common_aesthetics: [hospitality_premium, bright_modern]
+      usage: "family=hospitality_food; visual_mechanism=material_closeup"
+    - id: archival_print
+      label: 票据/拓印/古籍/历史
+      choose_when: "诗词、书法金句、国风知识卡、读书封面和历史课件"
+      default_structure: knowledge_card
+      common_mechanisms: [archival_collage, oversized_type, foreground_depth]
+      common_aesthetics: [archival_historical, editorial_aesthetic]
+      usage: "family=archival_print; visual_mechanism=archival_collage"
+    - id: pixel_play
+      label: 像素/解体实验
+      choose_when: "像素解体、碎片化主体或单一视觉实验"
+      default_structure: single_hook
+      common_mechanisms: [pixel_dissolution, color_field_stage]
+      common_aesthetics: [playful_pixel, bright_modern]
+      usage: "family=pixel_play; visual_mechanism=pixel_dissolution"
+    - id: brand_identity
+      label: 品牌识别/Logo 系统
+      choose_when: "图形标、字标、横竖组合、应用变体和品牌规范"
+      default_structure: logo_system
+      common_mechanisms: [geometric_mark]
+      common_aesthetics: [brand_system, bright_modern]
+      usage: "family=brand_identity; information_structure=logo_system; visual_mechanism=geometric_mark; text_strategy=logo_wordmark"
+
+cornell_pagination:
+  applies_to: cornell_notes
+  page_count: "auto | 1..6"
+  max_pages: 6
+  page_marker: top_left
+  page_marker_style: compact_badge
+  reference_annotation_policy: ignore_red_annotations
+  page_label_format: "NN/TT"
+  series_manifest: required
+  planner: scripts/resolve_cornell_pagination.py
+  density_profile: dense_cornell_v1
+  target_modules_per_page: 10
+  min_modules_per_page: 6
+  reference_role: style_density_reference
+  sparse_page_policy: "≤10 个完整模块默认单页；系列页低于 6 个模块时合并或减少页数"
+  split_policy: "按章节、知识模块和密度拆分；不机械截断，不用虚构内容填页；保留已认可母版的高信息密度"
+
+axes:
+  model_adapter:
+    required: false
+    default: auto
+    aliases:
+      gpt2: external_gpt_image_label
+      gpt-image2: external_gpt_image_label
+      builtin-imagegen: builtin_imagegen
+      claude-code: text_orchestrator_only
+      deepcode: text_orchestrator_only
+      agy: text_orchestrator_or_provider_dependent
+    options:
+      builtin_imagegen:
+        role: "当前 Agent 可直接调用的真实位图生成后端"
+        supports: [image_generation, view_image]
+        exact_text: "必须经过位图视觉验收；高风险字段可切换 hybrid_exact_text"
+      external_gpt_image_label:
+        role: "外部帖子使用的 GPT-image 标签；不是本技能的硬依赖"
+        supports: [image_generation_if_provider_exposes_it]
+        exact_text: "按实际 provider 能力验收，不把标签当作可用性证明"
+      text_orchestrator_only:
+        role: "只负责理解/编译 Prompt 的文本代理，不能单独交付位图"
+        supports: [prompt_compilation]
+        exact_text: "没有 imagegen + view_image 时必须标记 BLOCKED"
+      text_orchestrator_or_provider_dependent:
+        role: "CLI 是否能读文件、调用图像后端取决于运行时授权与工具"
+        supports: [prompt_compilation]
+        exact_text: "没有实际位图和视觉验收不得写‘生成通过’"
+
+  family:
+    required: true
+    aliases:
+      早安城市: morning_city
+      早安海报: morning_city
+      金句海报: poster_type_stage
+      PPT: presentation_grid
+      课件: presentation_grid
+      旅行刊物: travel_publication
+      人像写真: portrait_identity
+      活动物料: event_people
+      婚礼物料: celebration_ceremony
+      酒店餐饮: hospitality_food
+      古籍拓印: archival_print
+      像素实验: pixel_play
+      Logo: brand_identity
+      logo: brand_identity
+      品牌Logo: brand_identity
+      品牌标识: brand_identity
+    options:
+      morning_city: "城市/地点早安系列；来源事实、日期和 3–5 个知识点"
+      poster_type_stage: "单一钩子海报；大字、留白、色块和主题对象"
+      presentation_grid: "PPT/课程/招商手册；页角色、网格和跨页一致性"
+      travel_publication: "旅行刊物式叙事；主体、环境、倒影、边注"
+      portrait_identity: "人像/家庭/宠物写真；身份、姿态、光线、镜头"
+      event_people: "活动/会议/展会/邀请函；活动事实和人物物料"
+      celebration_ceremony: "生日/婚礼/纪念；对象、仪式和祝福"
+      hospitality_food: "酒店/食物/饮料；产品材质、卖点和场景"
+      archival_print: "票据/拓印/古籍/历史课件；纸张、墨迹和来源"
+      pixel_play: "像素解体等单一视觉实验"
+      brand_identity: "新品牌的图形标、字标、组合锁定和应用变体"
+
+  use_case:
+    required: true
+    aliases:
+      早安: good_morning
+      早安海报: good_morning
+      ppt: presentation
+      小红书: rednote_card
+      仓库推荐: repository_recommendation
+      重点技能: featured_skill
+      活动海报: event_poster
+      生日海报: birthday_poster
+      酒店海报: hospitality_poster
+      食物饮料: food_beverage
+      婚礼: wedding
+      请柬: wedding
+      婚纱: wedding
+      人像: portrait
+      写真: portrait
+      票据: archival_print
+      拓印: archival_print
+      古籍: archival_print
+      前景: foreground_story
+      Logo: brand_identity
+      logo: brand_identity
+      品牌Logo: brand_identity
+    options:
+      good_morning: "从来源事实提取日期、地点/对象、今日宜忌或问候语"
+      presentation: "先组织每页 Markdown 与知识点，再编译为页面视觉"
+      repository_recommendation: "必须来自仓库 README、事实清单和可核验 CTA"
+      featured_skill: "必须来自重点技能 SKILL.md、输入/工作流/交付/验收"
+      event_poster: "锁定活动时间、地点、主办方和行动入口，不虚构"
+      birthday_poster: "锁定祝福对象、日期和情绪，不把人物身份写成事实"
+      hospitality_poster: "锁定产品、场景、服务卖点和入口；没有价格/地址就不虚构"
+      food_beverage: "锁定食物/饮料、材质、卖点和使用场景；避免随机品牌信息"
+      wedding: "锁定双方/对象、仪式日期、祝福语和婚礼物料类型"
+      portrait: "锁定人物/宠物身份、姿态、光线、镜头和照片用途"
+      archival_print: "锁定金句/史实/来源，把纸张、墨迹和印章当作材质机制"
+      foreground_story: "用前景遮挡、景深和主体关系建立层次，不把前景当装饰"
+      brand_identity: "锁定品牌名称、图形概念、字标、组合变体和品牌使用边界"
+
+  information_structure:
+    required: true
+    aliases:
+      单张海报: single_hook
+      知识卡: knowledge_card
+      3-5个知识点: knowledge_card
+      PPT: deck_page
+      课件: deck_page
+      招商手册: deck_page
+      10页: deck_series
+      轮播: carousel_sequence
+      人物写真: portrait_brief
+      物料包: campaign_pack
+      Logo系统: logo_system
+      品牌Logo: logo_system
+    options:
+      single_hook:
+        reference: prompt-structure-single-hook.md
+        contract: "一个主钩子 + 少量辅助信息 + 单一 CTA"
+      knowledge_card:
+        reference: prompt-structure-knowledge-card.md
+        contract: "每页 3–5 个可判断信息，卡片之间有明确层级"
+      deck_page:
+        reference: prompt-structure-deck-page.md
+        contract: "每页一个页面角色，标题/焦点视觉/正文/页脚共享基线"
+      deck_series:
+        reference: prompt-structure-deck-series.md
+        contract: "固定视觉底座，10 页页面角色变化，不重复同一信息"
+      carousel_sequence:
+        reference: prompt-structure-carousel-sequence.md
+        contract: "首图钩子、过程/知识、结尾 CTA，移动端缩略图可读"
+      portrait_brief:
+        reference: prompt-structure-portrait-brief.md
+        contract: "主体身份、姿态、光线、镜头和用途逐项锁定"
+      campaign_pack:
+        reference: prompt-structure-campaign-pack.md
+        contract: "同一主题生成 4/10 张不同物料角色，事实和品牌资产一致"
+      logo_system:
+        reference: prompt-structure-logo-system.md
+        contract: "图形标、字标、组合锁定和应用变体共享同一几何底座"
+
+  asset_role:
+    required: false
+    default: none
+    aliases:
+      垫图: reference_subject
+      人脸锁定: identity_reference
+      品牌素材: brand_asset
+      截图: proof_screenshot
+      前景: foreground_subject
+    options:
+      none: "不依赖外部参考图，只用来源事实和文字"
+      reference_subject: "参考图提供主体身份/形体；不可擅自改变人物关系"
+      identity_reference: "锁定五官/身份特征；需声明隐私和可用性边界"
+      brand_asset: "仅使用客户授权 Logo、字体、产品图和颜色"
+      proof_screenshot: "截图只作效果/事实参考，不自动当作可复用品牌资产"
+      foreground_subject: "前景物体提供景深和叙事层，不遮挡关键文字"
+
+  text_strategy:
+    required: true
+    aliases:
+      大字: hero_typography
+      金句: quote_led
+      逐字: exact_text
+      中文字体: cjk_exact_text
+      英文标题: latin_hero_type
+      Logo字标: logo_wordmark
+      字标: logo_wordmark
+    options:
+      exact_text:
+        reference: prompt-text-exact-layer.md
+        contract: "标题、数字、专有名词和 CTA 独立列出并逐字验收"
+      cjk_exact_text:
+        reference: prompt-text-cjk-exact-layer.md
+        contract: "中文高风险字段优先 hybrid_exact_text，并保留人工视觉复核"
+      hero_typography:
+        reference: prompt-text-hero-typography.md
+        contract: "主标题承担视觉锚点，正文不挤占主标题呼吸区"
+      quote_led:
+        reference: prompt-text-quote-led.md
+        contract: "金句必须来自输入/来源，署名和出处不能臆造"
+      latin_hero_type:
+        reference: prompt-text-latin-hero-type.md
+        contract: "拉丁字可作为巨大主题词，但中文事实仍需单独验收"
+      logo_wordmark:
+        reference: prompt-text-logo-wordmark.md
+        contract: "字标逐字来自输入或批准资产，阶段 2 优先转为路径"
+
+  visual_mechanism:
+    required: true
+    aliases:
+      字体蒙版: typographic_mask
+      巨字: oversized_type
+      大字留白: oversized_type_whitespace
+      色块: color_field_stage
+      模块网格: modular_grid
+      旅行刊物: travel_editorial_narrative
+      像素解体: pixel_dissolution
+      前景: foreground_depth
+      人脸锁定: identity_lock
+      镜面: mirror_reflection
+      材质特写: material_closeup
+      商业舞台: commercial_stage
+      档案拼贴: archival_collage
+      电影光线: cinematic_lighting
+      几何图形标: geometric_mark
+      几何Logo: geometric_mark
+    options:
+      typographic_mask:
+        reference: prompt-visual-mechanism-typographic-mask.md
+        tags: [giant_type, image_inside_letterforms, controlled_crop, series_consistency]
+      oversized_type:
+        reference: prompt-visual-mechanism-oversized-type.md
+        tags: [large_type, whitespace, color_field, high_contrast]
+      modular_grid:
+        reference: prompt-visual-mechanism-modular-grid.md
+        tags: [grid, baseline, cards, information_hierarchy]
+      travel_editorial_narrative:
+        reference: prompt-visual-mechanism-travel-editorial.md
+        tags: [horizon, reflection, magazine_density, handwritten_overlay]
+      color_field_stage:
+        reference: prompt-visual-mechanism-color-field-stage.md
+        tags: [solid_color_field, stage_relation, contrast, whitespace]
+      pixel_dissolution:
+        reference: prompt-visual-mechanism-pixel-dissolution.md
+        tags: [deconstruction, pixels, transition, controlled_fragmentation]
+      foreground_depth:
+        reference: prompt-visual-mechanism-foreground-depth.md
+        tags: [foreground, depth, occlusion, cinematic_space]
+      identity_lock:
+        reference: prompt-visual-mechanism-identity-lock.md
+        tags: [identity, facial_features, pose, reference_image]
+      mirror_reflection:
+        reference: prompt-visual-mechanism-mirror-reflection.md
+        tags: [reflection, symmetry, ceremony, surface]
+      material_closeup:
+        reference: prompt-visual-mechanism-material-closeup.md
+        tags: [surface, texture, macro, appetite]
+      commercial_stage:
+        reference: prompt-visual-mechanism-commercial-stage.md
+        tags: [product, stage, light, call_to_action]
+      archival_collage:
+        reference: prompt-visual-mechanism-archival-collage.md
+        tags: [paper, imprint, collage, source_label]
+      cinematic_lighting:
+        reference: prompt-visual-mechanism-cinematic-lighting.md
+        tags: [key_light, shadow, lens, atmosphere]
+      geometric_mark:
+        reference: prompt-visual-mechanism-geometric-mark.md
+        tags: [geometry, silhouette, negative_space, vector]
+
+  aesthetic_system:
+    required: true
+    aliases:
+      美学提示词: editorial_aesthetic
+      编辑感: editorial_aesthetic
+      清爽现代: bright_modern
+      厚重历史: archival_historical
+      旅行刊物叙事感: travel_publication
+      人像编辑: portrait_editorial
+      仪式柔光: ceremonial_soft
+      酒店高级: hospitality_premium
+      玩趣像素: playful_pixel
+      品牌系统: brand_system
+    options:
+      editorial_aesthetic:
+        reference: prompt-aesthetic-editorial-system.md
+        roles: [background, image_support, subject_color, structural_dark]
+      bright_modern:
+        reference: prompt-aesthetic-bright-modern-system.md
+        roles: [high_key_background, accent, support, structure]
+      archival_historical:
+        reference: prompt-aesthetic-archival-system.md
+        roles: [paper, ink, earth_red, muted_blue, structure]
+      travel_publication:
+        reference: prompt-aesthetic-travel-publication-system.md
+        roles: [cool_environment, warm_subject, neutral_text, acid_accent]
+      portrait_editorial:
+        reference: prompt-aesthetic-portrait-editorial-system.md
+        roles: [skin_tone, key_light, shadow, neutral_background]
+      ceremonial_soft:
+        reference: prompt-aesthetic-ceremonial-soft-system.md
+        roles: [base_tone, subject_highlight, glow, text_neutral]
+      hospitality_premium:
+        reference: prompt-aesthetic-hospitality-premium-system.md
+        roles: [material_surface, appetite_color, product_light, structure]
+      playful_pixel:
+        reference: prompt-aesthetic-playful-pixel-system.md
+        roles: [base, pixel_subject, accent, outline]
+      brand_system:
+        reference: prompt-aesthetic-brand-system.md
+        roles: [primary_color, secondary_color, neutral_background, dark_background, monochrome]
+
+  batch_strategy:
+    required: false
+    default: single
+    aliases:
+      批量: series
+      复杂文章: adaptive_series
+      长文: adaptive_series
+      信息密集: adaptive_series
+      按章节拆图: adaptive_series
+      10张: series
+      10个城市: series
+    options:
+      single: "单张图，主题和知识点一次闭环"
+      series: "锁定视觉底座；每页只改变 2–4 个变量，并保留逐页 facts"
+      adaptive_series: "康奈尔长文按内容密度生成 1–6 页；系列共享视觉底座，页码固定在左上角并写入 manifest"
+      campaign_pack: "同一事实/品牌底座生成 4 张或 10 张不同物料角色"
+
+  output_mode:
+    required: false
+    default: poster
+    aliases:
+      海报: poster
+      PPT页: slide
+      小红书轮播: carousel
+      物料包: campaign_pack
+      Logo: logo
+    options:
+      poster: "单张可发布位图"
+      slide: "演示文稿页，优先 16:9"
+      carousel: "移动端轮播页，优先 3:4 或 4:5"
+      campaign_pack: "同一主题的一组物料，按角色逐张落盘"
+      logo: "品牌 Logo 系统；输出 SVG 矢量母版和 PNG 变体"
+
+  logo_variant:
+    required: false
+    default: all_variants
+    aliases:
+      彩色: color
+      彩色版: color
+      单色: monochrome
+      单色版: monochrome
+      黑白: monochrome
+      反白: reversed
+      反白版: reversed
+      黑白反白: all_variants
+      全套变体: all_variants
+    options:
+      color: "品牌主色版本"
+      monochrome: "单色版本"
+      reversed: "深色背景反白版本"
+      all_variants: "彩色、单色、反白全套版本"
+
+compile:
+  order:
+    - source_grounding
+    - family
+    - use_case
+    - information_structure
+    - asset_role
+    - visual_mechanism
+    - aesthetic_system
+    - composition_and_layout
+    - text_strategy
+    - exact_text
+    - aspect_and_output
+    - batch_strategy
+    - model_adapter
+    - logo_variant
+    - constraints_and_avoid
+  rules:
+    - "preset 只表示交付家族（cover、social_skill_catalog 等），不表示每一种风格组合"
+    - "family 是检索标签；它可以映射到多个 use_case、information_structure 和 visual_mechanism"
+    - "model_adapter 只改变可执行能力、文字策略和验收，不改写核心视觉语义"
+    - "use_case 提供事实任务，information_structure 提供信息密度，visual_mechanism 提供构图规则，aesthetic_system 提供材质/色彩/层级"
+    - "同一系列必须固定 family、机制和美学系统，主题佐料进入 facts 与 exact_text"
+    - "未找到词条时回退到 auto，并在 Prompt 中显式写出假设；不得默默复制案例 Prompt"
+
+examples:
+  - query: "GPT2 x 早安 x 字体蒙版 x 美学提示词"
+    normalized:
+      family: morning_city
+      model_adapter: external_gpt_image_label
+      use_case: good_morning
+      information_structure: knowledge_card
+      text_strategy: cjk_exact_text
+      visual_mechanism: typographic_mask
+      aesthetic_system: editorial_aesthetic
+      batch_strategy: series
+    note: "这是组合查询，不是名为 GPT2 或 editorial_typographic_mask_batch 的 preset"
+  - query: "仓库推荐 x 巨字留白 x 清爽现代"
+    normalized:
+      family: poster_type_stage
+      model_adapter: auto
+      use_case: repository_recommendation
+      information_structure: single_hook
+      visual_mechanism: oversized_type_whitespace
+      aesthetic_system: bright_modern
+      batch_strategy: single
+    note: "仍使用 social_skill_catalog 交付家族，并叠加机制与美学层"
+  - query: "GPT2 x 婚礼 x 请柬 x 婚纱 x 美学提示词"
+    normalized:
+      family: celebration_ceremony
+      model_adapter: external_gpt_image_label
+      use_case: wedding
+      information_structure: campaign_pack
+      asset_role: reference_subject
+      visual_mechanism: mirror_reflection
+      aesthetic_system: ceremonial_soft
+      batch_strategy: campaign_pack
+    note: "婚礼是使用场景，镜面/人物/柔光是机制与美学，不新增婚礼 preset"
+  - query: "品牌 Logo x 字标 x 黑白反白 x 几何图形标"
+    normalized:
+      family: brand_identity
+      use_case: brand_identity
+      information_structure: logo_system
+      visual_mechanism: geometric_mark
+      aesthetic_system: brand_system
+      text_strategy: logo_wordmark
+      output_mode: logo
+    note: "Logo 是独立两阶段交付契约；方向稿可用 imagegen，终稿必须确定性矢量重绘"

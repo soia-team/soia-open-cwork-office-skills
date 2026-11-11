@@ -1,7 +1,7 @@
 {
   "name": "soia-cwork-office",
   "version": "1.9.2-SNAPSHOT",
-  "description": "办公协作技能：飞书知识库与云盘、ProcessOn 图表",
+  "description": "办公与内容技能：飞书知识库与云盘、ProcessOn 图表；文章成文、文章图片与公众号、X、小红书发布",
   "author": {
     "name": "soia-team"
   },

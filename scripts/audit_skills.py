@@ -25,6 +25,9 @@ GRANDFATHER_INVALID_DATETIME: frozenset[str] = frozenset()
 GRANDFATHER_MISSING_PRIVATE_DATA_SECTION = frozenset(
     {
         "soia-cwork-feishu-cli",
+        "soia-media-compose-article-draft",
+        "soia-media-publish-rednote-card",
+        "soia-media-publish-wechat-draft",
         "soia-dev-agent-cli-dispatch",
         "soia-dev-ai-cli-upgrade",
         "soia-dev-coding-protocol",
@@ -243,7 +246,7 @@ def add_line_finding(findings: list[Finding], severity: str, root: Path, path: P
     findings.append(Finding(severity, rel(path, root), message, line_no))
 
 
-VALID_DOMAINS = ("cwork",)
+VALID_DOMAINS = ("cwork", "media")
 
 
 def audit_skill_name(root: Path, skill_dir: Path, findings: list[Finding]) -> None:

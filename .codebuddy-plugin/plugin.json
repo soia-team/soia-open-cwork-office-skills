@@ -1,7 +1,7 @@
 {
   "name": "soia-cwork-office",
   "version": "1.1.2-SNAPSHOT",
-  "description": "Workplace document aide: read-only research across Feishu Wiki, Drive and docs, one-way sync of Feishu knowledge bases into local Markdown, and authorized export, verification and archiving of ProcessOn diagrams.",
+  "description": "Office & content aide: read-only Feishu research with one-way sync to local Markdown, authorized ProcessOn diagram export and archiving; turns your opinions into drafts with imagery and adapts them for WeChat, Rednote and X — drafts only, never publishes.",
   "author": {
     "name": "soia-team"
   },
@@ -10,7 +10,12 @@
   ],
   "skills": [
     "./skills/soia-cwork-feishu-cli",
-    "./skills/soia-cwork-processon-diagrams"
+    "./skills/soia-cwork-processon-diagrams",
+    "./skills/soia-media-compose-article-draft",
+    "./skills/soia-media-generate-article-image",
+    "./skills/soia-media-publish-rednote-card",
+    "./skills/soia-media-publish-wechat-draft",
+    "./skills/soia-media-publish-x"
   ],
   "expertType": "agent",
   "agentName": "soia-cwork-office",
@@ -19,12 +24,12 @@
     "zh": "Soia Cowork"
   },
   "profession": {
-    "en": "Soia · Workplace Docs Aide",
-    "zh": "Soia · 办公资料助手"
+    "en": "Soia · Office & Content Aide",
+    "zh": "Soia · 办公与内容助手"
   },
   "displayDescription": {
-    "en": "Researches Feishu read-only with least privilege, syncs knowledge bases into local Markdown, and exports diagrams under your authorization.",
-    "zh": "以最小权限只读调研飞书知识库与云文档，同步成本地 Markdown，并按授权导出归档图表。"
+    "en": "Researches and syncs Feishu read-only, archives diagrams under your authorization, and turns your opinions into illustrated per-platform drafts — never auto-publishes.",
+    "zh": "只读调研并同步飞书资料、按授权归档图表；把观点写成文并配图，改写成各平台草稿，绝不自动发布。"
   },
   "avatar": "assets/icon.png",
   "categoryId": "09-OperationsHR",
@@ -42,8 +47,8 @@
       "zh": "图表归档"
     },
     {
-      "en": "Read-only Research",
-      "zh": "只读调研"
+      "en": "Multi-platform Adaptation",
+      "zh": "多平台改写"
     }
   ],
   "quickPrompts": [
@@ -52,12 +57,12 @@
       "zh": "团队资料散在飞书和 ProcessOn 上，帮我只读调研一遍，并同步一份可复核的本地副本。"
     },
     {
-      "en": "Sync this Feishu knowledge base into local Markdown, keeping structure and source metadata.",
-      "zh": "把这个飞书知识库同步成本地 Markdown，保留目录结构和来源元数据。"
+      "en": "I have a point of view I want to write up and adapt for several platforms. Take it from draft to platform-ready — drafts only, I will hit publish myself.",
+      "zh": "我有个观点想写成文章并分发到几个平台，帮我从草稿做到各平台可发状态；只建草稿，我自己点发布。"
     },
     {
-      "en": "Inventory my ProcessOn diagrams and export the ones I authorize.",
-      "zh": "盘点我的 ProcessOn 图表，把我授权的那些导出归档。"
+      "en": "Generate a cover image and summary cards for this article.",
+      "zh": "给这篇文章生成封面图和小结卡片。"
     }
   ]
 }

@@ -1,0 +1,125 @@
+schema_version: 7
+
+selection_order:
+  - image_type
+  - preset
+  - family
+  - use_case
+  - information_structure
+  - asset_role
+  - visual_mechanism
+  - aesthetic_system
+  - text_strategy
+  - platform
+  - layout_mode
+  - slide_count
+  - narrative_mode
+  - batch_strategy
+  - model_adapter
+  - output_mode
+  - logo_variant
+  - render_mode
+
+composition_index: prompt-composition-index.yml
+composition_framework: prompt-composition-framework.md
+family_catalog: prompt-family-catalog.md
+support_catalog: prompt-composition-index.yml#support_catalog
+
+prompt_blocks:
+  required:
+    - source_grounding
+    - primary_task
+    - composition_and_layout
+    - visual_style_and_materials
+    - exact_text
+    - aspect_and_output
+    - constraints_and_avoid
+  optional:
+    - composition_axes
+    - model_adapter
+    - reference_image_roles
+    - source_facts
+    - brand_asset_roles
+    - lighting_and_mood
+    - variant_axes
+
+templates:
+  - id: godot_pixel_metaphor
+    image_type: [cover, poster]
+    reference: prompt-godot-pixel-metaphor.md
+    default_aspect: "16:9"
+    output_stem: godot-pixel-metaphor
+    text_density: low
+    use_when: "文章需要用一个游戏世界和单一视觉隐喻表达核心冲突"
+
+  - id: editorial_summary_card
+    image_type: [summary_card]
+    reference: prompt-editorial-summary-card.md
+    default_aspect: "4:5"
+    output_stem: editorial-summary-card
+    text_density: medium
+    use_when: "正文需要一张观点小结图，突出主命题、关键词与补充解释"
+
+  - id: editorial_research_minimal
+    image_type: [cover, summary_card]
+    reference: prompt-editorial-research-minimal.md
+    default_aspect: "3:2"
+    output_stem: editorial-research-minimal
+    text_density: medium
+    batch_consistency: optional
+    use_when: "文章封面或小结需要研究编辑式留白、强标题、主题隐喻与克制配色"
+
+  - id: cornell_notes
+    image_type: [learning_note, summary_card]
+    reference: prompt-cornell-notes-infographic.md
+    default_aspect: "A4-portrait"
+    output_stem: cornell-notes
+    text_density: high
+    batch_consistency: required
+    adaptive_pagination: true
+    max_pages: 6
+    page_marker: top_left
+    page_marker_style: compact_badge
+    reference_annotation_policy: ignore_red_annotations
+    density_profile: dense_cornell_v1
+    target_modules_per_page: 10
+    min_modules_per_page: 6
+    use_when: "文章适合转成问题线索、模块化笔记、回顾总结和一句话记忆；复杂文章按内容密度生成 1–6 页系列"
+
+  - id: social_skill_catalog
+    image_type: [social_card, carousel]
+    reference: prompt-social-skill-catalog.md
+    contract: social-card-contract.yml
+    # 平台相关：rednote 用 3:4（占屏最多），wechat-moments 用 4:5（耐方形裁切）。
+    # 逐平台取值以 social-card-contract.yml 的 platforms 段为准，本项只是无平台时的兜底。
+    default_aspect: "3:4"
+    output_stem: social-skill-catalog
+    text_density: high
+    batch_consistency: required
+    render_modes: [direct_poster, hybrid_exact_text]
+    default_render_mode: direct_poster
+    deterministic_fields: [claim, skill_labels, install_command, repository_url, qr_code, brand_logos]
+    use_when: "需要把开源技能库、插件集合或产品能力清单做成高信息密度朋友圈单图/小红书轮播，或用双页结构推荐仓库与重点技能，并确保事实、数量、命令、URL 与二维码可核验"
+
+  - id: plugin_icon
+    image_type: [icon]
+    reference: prompt-plugin-icon.md
+    default_aspect: "1:1"
+    output_stem: plugin-icon
+    text_density: low
+    batch_consistency: required
+    two_stage: true
+    use_when: "需要插件市场图标、应用图标或技能库标识；本模板产出设计稿，终稿须矢量确定性重绘"
+
+  - id: brand_logo
+    image_type: [logo]
+    reference: prompt-brand-logo.md
+    default_aspect: "1:1"
+    output_stem: brand-logo
+    text_density: low
+    batch_consistency: required
+    two_stage: true
+    render_modes: [concept_imagegen, vector_two_stage]
+    default_render_mode: vector_two_stage
+    deterministic_fields: [mark_geometry, wordmark, tagline, color_variants, lockup_variants, clear_space, min_size]
+    use_when: "需要新品牌的图形标、字标、横竖组合、黑白反白和应用变体；阶段 1 探索方向，阶段 2 必须输出确定性 SVG 矢量母版"
