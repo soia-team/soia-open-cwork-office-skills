@@ -1,9 +1,9 @@
 ---
 name: soia-media-publish-rednote-card
 description: 把成文草稿改写成 rednote（小红书）笔记：生成吸睛标题（可带 emoji）、3–5 段短文、话题标签和配图建议；获客户当次授权时可代其在创作服务平台网页端完成发布。不接平台 API、不用第三方逆向包。Triggers：「发成小红书」「小红书笔记」「改成 rednote」「rednote 这篇」「帮我发到小红书」
-version: 2.4.1
+version: 2.4.2
 created_at: 2026-07-16 15:44:20
-updated_at: 2026-08-08 03:05:00
+updated_at: 2026-11-16 17:18:00
 created_by: gpt-5.6-luna
 updated_by: claude fable 5
 dependencies:
@@ -111,6 +111,7 @@ npx skills add soia-team/soia-open-cwork-office-skills -a <agent> -s soia-media-
 ### 1. 先定一个分享角度
 
 - 从原稿中选一个读者能立即理解的角度：解决一个问题、避开一个坑、复盘一个经历或给出一套方法。
+- 若原稿文档头部（frontmatter）带有 `preface`、`series_intro` 或 `digest` 等「序」与推荐语，优先从中提炼小红书笔记的开篇导语或推荐钩子，保持移动端自然口吻，不机械照搬“序：”标签进正文。
 - 标题、正文、标签和配图必须围绕同一个角度；不要把整篇文章压缩成互不相关的观点清单。
 - 保留原稿事实、限定条件和可核验的来源；不新增未经输入支持的数字、案例、引用或效果承诺。
 - 如果原稿有多个同等重要的主题，先询问客户选择；低风险时选择最清晰的主线，并在回执中说明。

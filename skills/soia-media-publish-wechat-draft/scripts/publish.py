@@ -265,7 +265,10 @@ def extract_article_meta(md_text: str, md_path: Path, args: argparse.Namespace) 
     h1_match = FIRST_H1_RE.search(body)
     fallback_title = h1_match.group(1).strip() if h1_match else md_path.stem
     title = (args.title or fm.get("title") or fallback_title).strip()
-    digest = (args.digest or fm.get("digest") or fm.get("summary") or "").strip()
+    raw_digest = (args.digest or fm.get("digest") or fm.get("summary") or "").strip()
+    if not raw_digest and fm.get("preface"):
+        raw_digest = str(fm.get("preface") or "").strip()[:120]
+    digest = raw_digest
     account = (args.account or fm.get("wechat_account") or fm.get("account") or "").strip()
     cover = (args.cover or fm.get("cover") or "").strip()
     account_author = ""
