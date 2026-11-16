@@ -3,6 +3,16 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.11.1 — 2026-11-16
+
+增强公众号 Obsidian 双链嵌图/YYYY-MM 归档与默认作者回退，补充生僻字与宽封面 HTML 混合渲染规范
+
+## 新增
+- feat(media-skills): support Obsidian embeds, html-out, YYYY/MM archiving, and CJK hybrid_exact_text fallback (#77)
+
+## 维护
+- chore(release): open next train after v1.11.0 (#76)
+
 ## v1.11.0 — 2026-11-16
 
 补全微信公众号草稿 API 投递、完整 Markdown 排版与多账号配置
