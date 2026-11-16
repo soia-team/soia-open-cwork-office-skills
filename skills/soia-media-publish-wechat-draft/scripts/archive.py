@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import os
 import re
+import sys
 from pathlib import Path
 
 
@@ -81,6 +83,75 @@ def update_frontmatter(
     return "---\n" + "\n".join(new_fm_lines) + "\n---\n" + body
 
 
+def _extract_archive_title(text: str, fallback_stem: str) -> str:
+    m = re.match(r"^---\n(.*?)\n---\n?", text.replace("\r\n", "\n"), re.DOTALL)
+    body = text
+    if m:
+        body = text[m.end():]
+        for line in m.group(1).splitlines():
+            if ":" in line and not line.startswith((" ", "\t", "-")):
+                k, raw_v = line.split(":", 1)
+                if k.strip() == "title":
+                    val = raw_v.strip().split(" #", 1)[0].strip().strip('"').strip("'")
+                    if val:
+                        return val
+    h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+    if h1:
+        return h1.group(1).strip()
+    return re.sub(r"^\d{4}-\d{2}-\d{2}-", "", fallback_stem).strip() or fallback_stem
+
+
+def _safe_filename_part(title: str) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|]+', "-", title).strip()
+    cleaned = re.sub(r"-{2,}", "-", cleaned).strip("-")
+    return cleaned or "untitled"
+
+
+def _rebase_relative_links(text: str, src_dir: Path, dst_dir: Path) -> str:
+    if src_dir.resolve() == dst_dir.resolve():
+        return text
+
+    def _rebase(raw_rel: str) -> str:
+        rel = raw_rel.strip()
+        if not rel or rel.startswith(("http://", "https://", "data:", "/", "#")):
+            return raw_rel
+        candidate = (src_dir / rel).resolve()
+        if not candidate.exists():
+            return raw_rel
+        return Path(os.path.relpath(candidate, dst_dir.resolve())).as_posix()
+
+    normalized = text.replace("\r\n", "\n")
+    fm_match = re.match(r"^(---\n)(.*?)(\n---\n?)", normalized, re.DOTALL)
+    if fm_match:
+        fm_lines = []
+        for line in fm_match.group(2).splitlines():
+            if line.startswith("cover:"):
+                key, val = line.split(":", 1)
+                raw_val = val.strip().strip('"').strip("'")
+                rebased = _rebase(raw_val)
+                fm_lines.append(f"{key}: {rebased}" if rebased != raw_val else line)
+            else:
+                fm_lines.append(line)
+        normalized = fm_match.group(1) + "\n".join(fm_lines) + fm_match.group(3) + normalized[fm_match.end():]
+
+    return re.sub(
+        r"(!\[[^\]]*\]\()([^)]+)(\))",
+        lambda m: f"{m.group(1)}{_rebase(m.group(2))}{m.group(3)}",
+        normalized,
+    )
+
+
+def compute_archive_path(src_path: Path, text: str, archive_dir: Path, pub_date: str, platform: str) -> Path:
+    date_match = re.match(r"^(\d{4})-(\d{2})-\d{2}$", pub_date.strip())
+    if not date_match:
+        raise ValueError(f"发布日期格式需为 YYYY-MM-DD：{pub_date!r}")
+    year, month = date_match.group(1), date_match.group(2)
+    title = _extract_archive_title(text, src_path.stem)
+    safe_title = _safe_filename_part(title)
+    safe_platform = _safe_filename_part(platform)
+    return archive_dir / year / month / f"{pub_date}-{safe_platform}-{safe_title}.md"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="更新已发布文章的 frontmatter（status/published_at/platform/url）")
     ap.add_argument("--article", required=True, help="文章 Markdown 路径")
@@ -88,9 +159,12 @@ def main() -> int:
     ap.add_argument("--date", help="发布日期 YYYY-MM-DD（默认当天）")
     ap.add_argument("--platform", default="公众号", help="发布平台，默认 公众号")
     ap.add_argument("--account", help="发布公众号账号标识（多账号时记录）")
+    ap.add_argument("--archive-dir", help="按 YYYY/MM/YYYY-MM-DD-<平台>-<标题>.md 写入发布归档目录")
+    ap.add_argument("--move", action="store_true", help="配合 --archive-dir 使用：写入归档目录后移除源草稿文件")
+    ap.add_argument("--force", action="store_true", help="配合 --archive-dir 使用：若目标文件已存在则允许覆盖")
     args = ap.parse_args()
 
-    path = Path(args.article)
+    path = Path(args.article).expanduser().resolve()
     pub_date = args.date or date.today().isoformat()
     updated = update_frontmatter(
         path.read_text(encoding="utf-8"),
@@ -99,6 +173,23 @@ def main() -> int:
         platform=args.platform,
         account=args.account,
     )
+
+    if args.archive_dir:
+        archive_root = Path(args.archive_dir).expanduser().resolve()
+        dest_path = compute_archive_path(path, updated, archive_root, pub_date, args.platform)
+        if dest_path.exists() and dest_path.resolve() != path and not args.force:
+            print(f"❌ 归档目标已存在（加 --force 可覆盖）：{dest_path}", file=sys.stderr)
+            return 1
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        final_text = _rebase_relative_links(updated, path.parent, dest_path.parent)
+        dest_path.write_text(final_text, encoding="utf-8")
+        if args.move and dest_path.resolve() != path:
+            path.unlink()
+            print(f"✅ 已移动归档：{dest_path} → status: 已发布，published_at: {pub_date}，platform: {args.platform}")
+        else:
+            print(f"✅ 已复制归档：{dest_path} → status: 已发布，published_at: {pub_date}，platform: {args.platform}")
+        return 0
+
     path.write_text(updated, encoding="utf-8")
     print(f"✅ 已归档：{path.name} → status: 已发布，published_at: {pub_date}，platform: {args.platform}")
     return 0

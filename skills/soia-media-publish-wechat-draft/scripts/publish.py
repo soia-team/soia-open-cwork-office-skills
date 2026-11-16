@@ -28,13 +28,14 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from publish_env import list_accounts, load_private_env, resolve_credentials
+from publish_env import list_accounts, load_private_env, resolve_account_meta, resolve_credentials
 import render_wechat
 from validate_wechat_html import WeChatHTMLChecker
 
 WECHAT_API_BASE = "https://api.weixin.qq.com/cgi-bin"
 IMG_SRC_RE = re.compile(r'(<img\b[^>]*\bsrc=")([^"]+)(")', re.IGNORECASE)
 FIRST_H1_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+VAULT_ASSET_DIRS = ("assets", "_attachments", "attachments")
 
 
 class WeChatAPIError(RuntimeError):
@@ -179,6 +180,47 @@ def create_draft(access_token: str, article_payload: dict, secrets: list[str]) -
     return str(media_id)
 
 
+def _find_obsidian_attachment(filename: str, base_dir: Path) -> Path | None:
+    """Resolve short Obsidian embed names (`![[foo.png]]`) within local/ancestor asset dirs, fail-closed on ambiguity."""
+    seen_roots: list[Path] = [base_dir]
+    cur = base_dir
+    for _ in range(4):
+        if (cur / ".obsidian").is_dir() or (cur / ".git").is_dir():
+            break
+        parent = cur.parent
+        if parent == cur:
+            break
+        seen_roots.append(parent)
+        cur = parent
+
+    matches: list[Path] = []
+    seen_resolved: set[Path] = set()
+    for root in seen_roots:
+        for sub in VAULT_ASSET_DIRS:
+            cand_dir = root / sub
+            if not cand_dir.is_dir():
+                continue
+            for found in sorted(cand_dir.rglob(filename)):
+                if found.is_file():
+                    res = found.resolve()
+                    if res not in seen_resolved:
+                        seen_resolved.add(res)
+                        matches.append(res)
+        direct = root / filename
+        if direct.is_file():
+            res = direct.resolve()
+            if res not in seen_resolved:
+                seen_resolved.add(res)
+                matches.append(res)
+
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        listed = "\n  - ".join(str(p) for p in matches[:5])
+        raise ValueError(f"同名本地图片 {filename!r} 命中多处，请改用相对路径消除歧义：\n  - {listed}")
+    return None
+
+
 def _resolve_local_path(raw_path: str, base_dir: Path) -> Path:
     candidate = Path(raw_path).expanduser()
     if candidate.is_absolute():
@@ -186,7 +228,14 @@ def _resolve_local_path(raw_path: str, base_dir: Path) -> Path:
     rel_to_article = (base_dir / candidate).resolve()
     if rel_to_article.exists():
         return rel_to_article
-    return candidate.resolve()
+    cwd_candidate = candidate.resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+    if candidate.parent == Path("."):
+        obs_hit = _find_obsidian_attachment(candidate.name, base_dir)
+        if obs_hit is not None:
+            return obs_hit
+    return rel_to_article
 
 
 def collect_local_images(html_text: str, base_dir: Path) -> list[tuple[str, Path]]:
@@ -216,10 +265,20 @@ def extract_article_meta(md_text: str, md_path: Path, args: argparse.Namespace) 
     h1_match = FIRST_H1_RE.search(body)
     fallback_title = h1_match.group(1).strip() if h1_match else md_path.stem
     title = (args.title or fm.get("title") or fallback_title).strip()
-    author = (args.author or fm.get("author") or "").strip()
     digest = (args.digest or fm.get("digest") or fm.get("summary") or "").strip()
     account = (args.account or fm.get("wechat_account") or fm.get("account") or "").strip()
     cover = (args.cover or fm.get("cover") or "").strip()
+    account_author = ""
+    if not (args.author or fm.get("author")):
+        try:
+            meta_hint = resolve_account_meta(
+                account=account or None,
+                config_file=getattr(args, "config", None),
+            )
+            account_author = meta_hint.get("author", "")
+        except ValueError:
+            account_author = ""
+    author = (args.author or fm.get("author") or account_author).strip()
     return {
         "title": title,
         "author": author,
@@ -229,8 +288,15 @@ def extract_article_meta(md_text: str, md_path: Path, args: argparse.Namespace) 
     }
 
 
-def render_and_validate(md_text: str, md_path: Path, renderer: str, strip_h1: bool) -> tuple[Path, str]:
-    html_path = md_path.with_suffix(".html")
+def render_and_validate(
+    md_text: str,
+    md_path: Path,
+    renderer: str,
+    strip_h1: bool,
+    html_out: str | None = None,
+) -> tuple[Path, str]:
+    html_path = Path(html_out).expanduser().resolve() if html_out else md_path.with_suffix(".html")
+    html_path.parent.mkdir(parents=True, exist_ok=True)
     if renderer == "wechat":
         html_text = render_wechat.render(md_text, strip_h1=strip_h1)
         html_path.write_text(html_text, encoding="utf-8")
@@ -284,6 +350,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--author", help="覆盖作者名")
     ap.add_argument("--digest", help="覆盖摘要（建议 ≤120 字）")
     ap.add_argument("--renderer", default="wechat", choices=["wechat", "legacy"], help="渲染器，默认 wechat")
+    ap.add_argument("--html-out", help="指定渲染 HTML 输出路径（默认在源 Markdown 同目录生成同名 .html）")
     ap.add_argument("--keep-h1", action="store_true", help="保留正文开头首个 # 一级标题")
     ap.add_argument("--dry-run", action="store_true", help="只渲染、校验并检查本地图片/封面，不调微信 API")
     ap.add_argument("--list-accounts", action="store_true", help="列出已配置的公众号账号（含 config.yml 与分账号 yml）")
@@ -333,9 +400,14 @@ def main() -> int:
         md_path,
         renderer=args.renderer,
         strip_h1=not args.keep_h1,
+        html_out=args.html_out,
     )
 
-    local_images = collect_local_images(html_text, md_path.parent)
+    try:
+        local_images = collect_local_images(html_text, md_path.parent)
+    except ValueError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
     missing_images = [p for _, p in local_images if not p.is_file()]
     if missing_images:
         missing_str = "\n".join(f"  - {p}" for p in missing_images)
@@ -344,16 +416,21 @@ def main() -> int:
 
     cover_path: Path | None = None
     if meta["cover"]:
-        cover_path = _resolve_local_path(meta["cover"], md_path.parent)
+        try:
+            cover_path = _resolve_local_path(meta["cover"], md_path.parent)
+        except ValueError as exc:
+            print(f"❌ {exc}", file=sys.stderr)
+            return 1
         if not cover_path.is_file():
             print(f"❌ 找不到封面图片：{cover_path}", file=sys.stderr)
             return 1
 
     if args.dry_run:
         account_label = meta["account"] or "(未指定，推送时按配置解析)"
+        author_part = f" | 作者={meta['author']}" if meta["author"] else ""
         print(f"[dry-run] 渲染并校验通过：{html_path}")
         print(
-            f"[dry-run] 标题={meta['title']!r} | 账号={account_label} | "
+            f"[dry-run] 标题={meta['title']!r}{author_part} | 账号={account_label} | "
             f"本地正文图={len(local_images)} 张 | 封面={cover_path or '未指定'}"
         )
         print("[dry-run] 未推送远端。确认参数与封面后去掉 --dry-run 即可建草稿。")

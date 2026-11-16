@@ -98,6 +98,38 @@ class WeChatRenderAndValidateTests(unittest.TestCase):
         self.assertIn("style-float", err_types)
         self.assertEqual([w["type"] for w in checker.warnings], ["bare-text"])
 
+    def test_obsidian_embeds_and_frontmatter_inline_comments(self) -> None:
+        md = (
+            "---\n"
+            "title: 示例 # 保留URL或注释?  # 注释文本\n"
+            "wechat_account: zbt  # 默认账号\n"
+            'digest: "包含 # 号的摘要"\n'
+            "url: https://example.com/a#frag\n"
+            "---\n\n"
+            "![[assets/sub/pic1.png]]\n\n"
+            "![[pic2.png|600]]\n\n"
+            "![[pic3.png|清晰图注|600]]\n\n"
+            "![[非图片笔记]]\n"
+        )
+        fm, _ = render_wechat.parse_frontmatter(md)
+        self.assertEqual(fm["wechat_account"], "zbt")
+        self.assertEqual(fm["digest"], "包含 # 号的摘要")
+        self.assertEqual(fm["url"], "https://example.com/a#frag")
+
+        html_out = render_wechat.render(md, strip_h1=True)
+        self.assertIn('src="assets/sub/pic1.png"', html_out)
+        self.assertIn('src="pic2.png"', html_out)
+        self.assertNotIn(">600<", html_out)
+        self.assertIn('src="pic3.png"', html_out)
+        self.assertIn(">清晰图注<", html_out)
+        self.assertNotIn("非图片笔记.png", html_out)
+
+        checker = WeChatHTMLChecker()
+        checker.feed(html_out)
+        checker.close()
+        self.assertEqual(checker.errors, [])
+        self.assertEqual(checker.warnings, [])
+
 
 class PublishEnvMultiAccountTests(unittest.TestCase):
     def test_multi_account_resolution_and_fail_closed_behavior(self) -> None:
@@ -337,6 +369,73 @@ class PublishWorkflowTests(unittest.TestCase):
             self.assertIn("https://mmbiz.qpic.cn/mmbiz_png/uploaded_demo/0", article_obj["content"])
             self.assertNotIn('src="images/demo.png"', article_obj["content"])
 
+    def test_obsidian_basename_resolution_account_author_and_html_out(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            (vault / ".obsidian").mkdir()
+            drafts = vault / "50_写作" / "10_草稿"
+            img_sub = drafts / "assets" / "nested"
+            img_sub.mkdir(parents=True)
+            (img_sub / "cover_obs.png").write_bytes(b"\x89PNG\r\n\x1a\ncover")
+            (img_sub / "inline_obs.png").write_bytes(b"\x89PNG\r\n\x1a\ninline")
+
+            md_path = drafts / "2026-11-16-obs.md"
+            md_path.write_text(
+                "---\n"
+                "title: Obsidian 嵌图测试\n"
+                "wechat_account: zbt\n"
+                "cover: cover_obs.png\n"
+                "---\n\n"
+                "# Obsidian 嵌图测试\n\n"
+                "![[inline_obs.png|唯一图注|600]]\n",
+                encoding="utf-8",
+            )
+            html_out_path = vault / "preview" / "custom.html"
+            cfg = vault / "config.yml"
+            cfg.write_text(
+                "\n".join(
+                    [
+                        "accounts:",
+                        "  zbt:",
+                        '    name: "测试号"',
+                        '    author: "默认作者名"',
+                        '    app_id: "wx_id"',
+                        '    app_secret: "wx_sec"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            out_buf = io.StringIO()
+            with mock.patch.dict(os.environ, {"SOIA_MEDIA_PUBLISH_WECHAT_DRAFT_CONFIG_FILE": str(cfg)}):
+                with mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "publish.py",
+                        "--article",
+                        str(md_path),
+                        "--config",
+                        str(cfg),
+                        "--html-out",
+                        str(html_out_path),
+                        "--dry-run",
+                    ],
+                ):
+                    with redirect_stdout(out_buf):
+                        rc = publish.main()
+            self.assertEqual(rc, 0)
+            self.assertTrue(html_out_path.is_file())
+            self.assertFalse(md_path.with_suffix(".html").exists())
+            self.assertIn("作者=默认作者名", out_buf.getvalue())
+
+            # 重名 basename 必须 fail-closed 报错
+            dup_dir = drafts / "assets" / "other"
+            dup_dir.mkdir()
+            (dup_dir / "inline_obs.png").write_bytes(b"\x89PNG\r\n\x1a\ndup")
+            with self.assertRaises(ValueError):
+                publish._resolve_local_path("inline_obs.png", drafts)
+
 
 class ArchiveTests(unittest.TestCase):
     def test_archive_preserves_order_and_aligns_vault_frontmatter(self) -> None:
@@ -365,6 +464,58 @@ class ArchiveTests(unittest.TestCase):
         self.assertIn("wechat_account: zbt", out)
         self.assertIn("custom_field: keep_me", out)
         self.assertLess(out.index("title:"), out.index("custom_field:"))
+
+    def test_archive_dir_writes_yyyy_mm_and_rebases_relative_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            draft_dir = root / "10_草稿" / "50_自省"
+            asset_dir = draft_dir / "assets" / "demo"
+            asset_dir.mkdir(parents=True)
+            (asset_dir / "cover.png").write_bytes(b"\x89PNG\r\n\x1a\nc")
+            (asset_dir / "fig.png").write_bytes(b"\x89PNG\r\n\x1a\nf")
+            draft = draft_dir / "2026-11-16-半山行.md"
+            draft.write_text(
+                "---\n"
+                "tags: [草稿, 自省]\n"
+                "title: 行至半山\n"
+                "status: 草稿\n"
+                "cover: assets/demo/cover.png\n"
+                "---\n\n"
+                "# 行至半山\n\n"
+                "![图注](assets/demo/fig.png)\n",
+                encoding="utf-8",
+            )
+            archive_root = root / "20_发布"
+            out_buf = io.StringIO()
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "archive.py",
+                    "--article",
+                    str(draft),
+                    "--url",
+                    "https://mp.weixin.qq.com/s/test",
+                    "--date",
+                    "2026-11-16",
+                    "--platform",
+                    "公众号",
+                    "--account",
+                    "zbt",
+                    "--archive-dir",
+                    str(archive_root),
+                ],
+            ):
+                with redirect_stdout(out_buf):
+                    rc = archive.main()
+            self.assertEqual(rc, 0)
+            dest = archive_root / "2026" / "11" / "2026-11-16-公众号-行至半山.md"
+            self.assertTrue(dest.is_file())
+            self.assertTrue(draft.is_file())
+            text = dest.read_text(encoding="utf-8")
+            self.assertIn("status: 已发布", text)
+            self.assertIn("cover: ../../../10_草稿/50_自省/assets/demo/cover.png", text)
+            self.assertIn("![图注](../../../10_草稿/50_自省/assets/demo/fig.png)", text)
 
 
 if __name__ == "__main__":

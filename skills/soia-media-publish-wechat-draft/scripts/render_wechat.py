@@ -19,7 +19,7 @@
   | 表格 | ... |             → <section> 包裹内联样式 <table>
   --- / *** / ___ 分割线     → <section> 顶边框分割线
   `行内代码` / ```代码块```   → <code style="..."> / <section> 内嵌 <code>
-  ![alt](url)                → <img>；alt 非空则图下加一行说明文字
+  ![alt](url) / ![[img.png]]→ <img>；alt 非空则图下加一行说明文字
   普通段落                    → <p>
 
 用法：
@@ -82,6 +82,8 @@ TABLE_SEP_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$"
 HR_RE = re.compile(r"^(?:---+|\*\*\*+|___+)$")
 ORDERED_ITEM_RE = re.compile(r"^\d+\.\s+(.*)$")
 UNORDERED_ITEM_RE = re.compile(r"^[-*]\s+(.*)$")
+OBSIDIAN_IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+OBSIDIAN_SIZE_RE = re.compile(r"^\d+(?:x\d+)?$", re.IGNORECASE)
 
 INLINE_TOKEN_RE = re.compile(
     r"`([^`]+)`"
@@ -115,9 +117,44 @@ def parse_frontmatter(text):
         for line in m.group(1).splitlines():
             if ":" in line and not line.startswith((" ", "\t", "-")):
                 k, v = line.split(":", 1)
-                fm[k.strip()] = v.strip().strip('"').strip("'")
+                raw_val = v.strip()
+                if len(raw_val) >= 2 and raw_val[0] in ('"', "'"):
+                    quote_ch = raw_val[0]
+                    end_idx = raw_val.find(quote_ch, 1)
+                    val = raw_val[1:end_idx] if end_idx != -1 else raw_val.strip('"').strip("'")
+                else:
+                    val = raw_val.split(" #", 1)[0].strip().strip('"').strip("'")
+                fm[k.strip()] = val
         body = normalized[m.end():]
     return fm, body
+
+
+def _parse_image_line(stripped):
+    """Parse standard `![alt](url)` or Obsidian `![[path|alt|size]]` standalone image lines."""
+    m = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)$", stripped)
+    if m:
+        alt, url = m.group(1), m.group(2).strip()
+        if url.startswith("<") and url.endswith(">") and len(url) >= 2:
+            url = url[1:-1].strip()
+        return url, alt
+
+    if stripped.startswith("![[") and stripped.endswith("]]"):
+        inner = stripped[3:-2].strip()
+        segments = [seg.strip() for seg in inner.split("|")]
+        target = segments[0] if segments else ""
+        if not target:
+            return None
+        clean_target = target.split("#", 1)[0].strip()
+        if Path(clean_target).suffix.lower() not in OBSIDIAN_IMG_EXTS:
+            return None
+        alt = ""
+        for seg in segments[1:]:
+            if seg and not OBSIDIAN_SIZE_RE.match(seg):
+                alt = seg
+                break
+        return clean_target, alt
+
+    return None
 
 
 def _wikilink_label(raw_inner):
@@ -296,11 +333,11 @@ def render(md_text, strip_h1=False):
             parts.append(f'<ol style="{LIST_STYLE}">{li_html}</ol>')
             continue
 
-        # 图片
-        m = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)$", stripped)
-        if m:
+        # 图片（支持 ![alt](url) 与 Obsidian ![[path|alt|width]]）
+        parsed_img = _parse_image_line(stripped)
+        if parsed_img is not None:
+            url, alt = parsed_img
             seen_non_empty = True
-            alt, url = m.group(1), m.group(2)
             parts.append(
                 f'<p style="margin:16px 0"><img src="{esc_attr(url)}" alt="{esc_attr(alt)}" style="{IMG_STYLE}"/></p>'
             )
