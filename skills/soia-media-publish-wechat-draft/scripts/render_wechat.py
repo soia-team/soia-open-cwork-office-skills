@@ -9,25 +9,23 @@
 再交给 publish.py 推草稿箱——本脚本自己不做校验，只负责生成。
 
 支持的 Markdown 子集：
-  # ~ ######  标题        → 内联样式 h1~h6（锚点层）
-  **加粗**                 → 主题色加粗 <strong>（标记层）
-  ==高亮==                 → 红色加粗 <strong>（标记层）
-  > 引用（连续行合并）      → 金句卡：内联样式 <section>（容器层）
-  - / * 列表项（连续行合并） → <ul>/<li>，无 class/id
-  `行内代码`                → <code style="...">
-  ```代码块```              → <section> 内嵌 <code>，内联样式模拟代码块外观
-  ![alt](url)               → <img>；alt 非空则图下加一行说明文字
-  普通段落                  → <p>
-
-frontmatter（--- ... ---）会被解析但不渲染进正文，目前只用到 title（写进悬空的
-文档标题，不输出 <html>/<head>；本脚本只产出可直接粘贴的正文片段）。
-
-主题色是脚本顶部的 Python 常量（THEME_COLOR 等），不是 CSS 变量——CSS 变量
-（var(--x)）是微信平台红线之一，微信编辑器不支持，所以颜色在这里写死成字面值。
+  # ~ ######  标题          → 内联样式 h1~h6（锚点层）
+  **加粗**                   → 主题色加粗 <strong>（标记层）
+  ==高亮==                   → 红色加粗 <strong>（标记层）
+  *斜体* / ~~删除线~~        → <em> / <del>
+  [文字](url) / [[双链]]     → 外链 <a> 或纯文本 <span>（清洗 Obsidian 双链）
+  > 引用（连续行合并）        → 金句卡：内联样式 <section>（容器层）
+  - / * 无序列表 / 1. 有序   → <ul> / <ol> + <li>，无 class/id
+  | 表格 | ... |             → <section> 包裹内联样式 <table>
+  --- / *** / ___ 分割线     → <section> 顶边框分割线
+  `行内代码` / ```代码块```   → <code style="..."> / <section> 内嵌 <code>
+  ![alt](url)                → <img>；alt 非空则图下加一行说明文字
+  普通段落                    → <p>
 
 用法：
   python3 render_wechat.py --file article.md
   python3 render_wechat.py --file article.md --output article.html
+  python3 render_wechat.py --file article.md --strip-h1
   cat article.md | python3 render_wechat.py
 
 纯标准库实现（re/html/argparse），无第三方依赖。
@@ -46,6 +44,7 @@ QUOTE_BG = "#f9f5f0"
 CODE_BG = "#f6f8fa"
 CODE_COLOR = "#476582"
 CAPTION_COLOR = "#888888"
+BORDER_COLOR = "#e5e7eb"
 
 FONT_STACK = "-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif"
 MONO_STACK = "Menlo,Consolas,monospace"
@@ -68,10 +67,39 @@ CODE_BLOCK_SECTION_STYLE = f"margin:18px 0;padding:14px 16px;background:{CODE_BG
 CODE_BLOCK_CODE_STYLE = f"color:{CODE_COLOR};font-family:{MONO_STACK};font-size:14px;line-height:1.6"
 IMG_STYLE = "max-width:100%;display:block;margin:16px auto"
 CAPTION_STYLE = f"text-align:center;font-size:13px;color:{CAPTION_COLOR};margin:-8px 0 16px"
+HR_SECTION_STYLE = f"margin:24px 0;border-top:1px solid {BORDER_COLOR}"
+TABLE_WRAP_STYLE = "margin:18px 0;overflow-x:auto"
+TABLE_STYLE = f"width:100%;border-collapse:collapse;font-size:14px;line-height:1.6;color:{BODY_COLOR}"
+TH_STYLE = (
+    f"border:1px solid {BORDER_COLOR};padding:8px 10px;background:{QUOTE_BG};"
+    f"font-weight:700;text-align:left"
+)
+TD_STYLE = f"border:1px solid {BORDER_COLOR};padding:8px 10px;text-align:left"
+LINK_STYLE = f"color:{THEME_COLOR};text-decoration:underline"
+DEL_STYLE = f"text-decoration:line-through;color:{CAPTION_COLOR}"
+
+TABLE_SEP_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")
+HR_RE = re.compile(r"^(?:---+|\*\*\*+|___+)$")
+ORDERED_ITEM_RE = re.compile(r"^\d+\.\s+(.*)$")
+UNORDERED_ITEM_RE = re.compile(r"^[-*]\s+(.*)$")
+
+INLINE_TOKEN_RE = re.compile(
+    r"`([^`]+)`"
+    r"|\[\[([^\]]+)\]\]"
+    r"|\[([^\]]+)\]\(([^)]+)\)"
+    r"|==(.+?)=="
+    r"|\*\*(.+?)\*\*"
+    r"|~~(.+?)~~"
+    r"|(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)"
+)
 
 
 def esc(text):
     return html_escape_mod.escape(text, quote=False)
+
+
+def esc_attr(text):
+    return html_escape_mod.escape(text, quote=True)
 
 
 def span(text, style=""):
@@ -80,22 +108,30 @@ def span(text, style=""):
 
 
 def parse_frontmatter(text):
-    m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
-    fm, body = {}, text
+    normalized = text.replace("\r\n", "\n")
+    m = re.match(r"^---\n(.*?)\n---\n?", normalized, re.DOTALL)
+    fm, body = {}, normalized
     if m:
         for line in m.group(1).splitlines():
-            if ":" in line:
+            if ":" in line and not line.startswith((" ", "\t", "-")):
                 k, v = line.split(":", 1)
-                fm[k.strip()] = v.strip()
-        body = text[m.end():]
+                fm[k.strip()] = v.strip().strip('"').strip("'")
+        body = normalized[m.end():]
     return fm, body
 
 
-INLINE_TOKEN_RE = re.compile(r"`([^`]+)`|==(.+?)==|\*\*(.+?)\*\*")
+def _wikilink_label(raw_inner):
+    if "|" in raw_inner:
+        return raw_inner.split("|", 1)[1].strip()
+    target = raw_inner.strip()
+    if target.startswith("#"):
+        return target.lstrip("#").strip()
+    base = target.split("#", 1)[0].rsplit("/", 1)[-1].strip()
+    return base or target
 
 
 def render_inline(text):
-    """行内标记：`代码` / ==高亮== / **加粗**；其余纯文本逐段套 <span>。"""
+    """行内标记：`代码` / [[双链]] / [链接](url) / ==高亮== / **加粗** / ~~删除~~ / *斜体*；其余纯文本套 <span>。"""
     if text == "":
         return span("")
     out = []
@@ -103,38 +139,77 @@ def render_inline(text):
     for m in INLINE_TOKEN_RE.finditer(text):
         if m.start() > pos:
             out.append(span(text[pos:m.start()]))
-        code, hi, bold = m.group(1), m.group(2), m.group(3)
+        code, wiki, link_text, link_url, hi, bold, strike, italic = m.groups()
         if code is not None:
             out.append(f'<code style="{CODE_INLINE_STYLE}">{esc(code)}</code>')
+        elif wiki is not None:
+            out.append(span(_wikilink_label(wiki)))
+        elif link_text is not None:
+            url = (link_url or "").strip()
+            if url.startswith(("http://", "https://")):
+                out.append(f'<a href="{esc_attr(url)}" style="{LINK_STYLE}">{span(link_text)}</a>')
+            else:
+                out.append(span(link_text))
         elif hi is not None:
             out.append(f'<strong style="color:{HIGHLIGHT_COLOR}">{span(hi)}</strong>')
-        else:
+        elif bold is not None:
             out.append(f'<strong style="color:{THEME_COLOR}">{span(bold)}</strong>')
+        elif strike is not None:
+            out.append(f'<del style="{DEL_STYLE}">{span(strike)}</del>')
+        else:
+            out.append(f'<em style="font-style:italic">{span(italic)}</em>')
         pos = m.end()
     if pos < len(text):
         out.append(span(text[pos:]))
     return "".join(out) if out else span(text)
 
 
-def render(md_text):
-    fm, body = parse_frontmatter(md_text)
+def _split_table_row(line):
+    row = line.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|"):
+        row = row[:-1]
+    return [cell.strip() for cell in re.split(r"(?<!\\)\|", row)]
+
+
+def _render_table(headers, rows):
+    th_cells = "".join(f'<th style="{TH_STYLE}">{render_inline(h)}</th>' for h in headers)
+    thead = f"<thead><tr>{th_cells}</tr></thead>"
+    body_rows = []
+    for row in rows:
+        padded = row + [""] * max(0, len(headers) - len(row))
+        tds = "".join(f'<td style="{TD_STYLE}">{render_inline(cell)}</td>' for cell in padded[:len(headers)])
+        body_rows.append(f"<tr>{tds}</tr>")
+    tbody = f"<tbody>{''.join(body_rows)}</tbody>" if body_rows else ""
+    return (
+        f'<section style="{TABLE_WRAP_STYLE}">'
+        f'<table style="{TABLE_STYLE}">{thead}{tbody}</table>'
+        f'</section>'
+    )
+
+
+def render(md_text, strip_h1=False):
+    _, body = parse_frontmatter(md_text)
     lines = body.splitlines()
     n = len(lines)
     parts = []
     i = 0
+    seen_non_empty = False
     while i < n:
         raw_line = lines[i]
         stripped = raw_line.strip()
 
         # 围栏代码块（```...```）→ 内联样式 <section> 内嵌 <code>，逐行用 <br/> 连接
         if stripped.startswith("```"):
+            seen_non_empty = True
             i += 1
             code_lines = []
             while i < n and not lines[i].strip().startswith("```"):
                 code_lines.append(lines[i])
                 i += 1
             i += 1  # 跳过收尾 ```
-            rendered_lines = [esc(l) if l.strip() else "&nbsp;" for l in code_lines]
+            rendered_lines = [esc(line) if line.strip() else "&nbsp;" for line in code_lines]
             code_html = "<br/>".join(rendered_lines)
             parts.append(
                 f'<section style="{CODE_BLOCK_SECTION_STYLE}">'
@@ -147,13 +222,38 @@ def render(md_text):
         m = re.match(r"^(#{1,6})\s+(.*)$", raw_line)
         if m:
             level = len(m.group(1))
+            if strip_h1 and level == 1 and not seen_non_empty:
+                seen_non_empty = True
+                i += 1
+                continue
+            seen_non_empty = True
             content = render_inline(m.group(2).strip())
             parts.append(f'<h{level} style="{H_STYLE}">{content}</h{level}>')
             i += 1
             continue
 
+        # 分割线（--- / *** / ___）
+        if HR_RE.match(stripped):
+            seen_non_empty = True
+            parts.append(f'<section style="{HR_SECTION_STYLE}"></section>')
+            i += 1
+            continue
+
+        # Markdown 表格（表头 + 分隔行）
+        if "|" in stripped and i + 1 < n and TABLE_SEP_RE.match(lines[i + 1].strip()):
+            seen_non_empty = True
+            headers = _split_table_row(stripped)
+            i += 2
+            rows = []
+            while i < n and "|" in lines[i].strip() and lines[i].strip():
+                rows.append(_split_table_row(lines[i].strip()))
+                i += 1
+            parts.append(_render_table(headers, rows))
+            continue
+
         # 引用块（连续 > 行合并成一张金句卡）
         if stripped.startswith(">"):
+            seen_non_empty = True
             quote_lines = []
             while i < n and lines[i].strip().startswith(">"):
                 quote_lines.append(lines[i].strip().lstrip(">").strip())
@@ -165,10 +265,14 @@ def render(md_text):
             continue
 
         # 无序列表（连续 - / * 行合并）
-        if re.match(r"^[-*]\s+", stripped):
+        if UNORDERED_ITEM_RE.match(stripped):
+            seen_non_empty = True
             items = []
-            while i < n and re.match(r"^[-*]\s+", lines[i].strip()):
-                items.append(re.sub(r"^[-*]\s+", "", lines[i].strip()))
+            while i < n:
+                m_item = UNORDERED_ITEM_RE.match(lines[i].strip())
+                if not m_item:
+                    break
+                items.append(m_item.group(1))
                 i += 1
             li_html = "".join(
                 f'<li style="{LIST_ITEM_STYLE}">{render_inline(t)}</li>' for t in items
@@ -176,11 +280,30 @@ def render(md_text):
             parts.append(f'<ul style="{LIST_STYLE}">{li_html}</ul>')
             continue
 
+        # 有序列表（连续 1. 2. 行合并）
+        if ORDERED_ITEM_RE.match(stripped):
+            seen_non_empty = True
+            items = []
+            while i < n:
+                m_item = ORDERED_ITEM_RE.match(lines[i].strip())
+                if not m_item:
+                    break
+                items.append(m_item.group(1))
+                i += 1
+            li_html = "".join(
+                f'<li style="{LIST_ITEM_STYLE}">{render_inline(t)}</li>' for t in items
+            )
+            parts.append(f'<ol style="{LIST_STYLE}">{li_html}</ol>')
+            continue
+
         # 图片
         m = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)$", stripped)
         if m:
+            seen_non_empty = True
             alt, url = m.group(1), m.group(2)
-            parts.append(f'<p style="margin:16px 0"><img src="{esc(url)}" alt="{esc(alt)}" style="{IMG_STYLE}"/></p>')
+            parts.append(
+                f'<p style="margin:16px 0"><img src="{esc_attr(url)}" alt="{esc_attr(alt)}" style="{IMG_STYLE}"/></p>'
+            )
             if alt.strip():
                 parts.append(f'<p style="{CAPTION_STYLE}">{span(alt.strip())}</p>')
             i += 1
@@ -192,6 +315,7 @@ def render(md_text):
             continue
 
         # 普通段落
+        seen_non_empty = True
         parts.append(f'<p style="{BODY_P_STYLE}">{render_inline(stripped)}</p>')
         i += 1
 
@@ -207,6 +331,7 @@ def parse_args():
     )
     ap.add_argument("--file", help="输入 Markdown 文件路径；不传则从 stdin 读取")
     ap.add_argument("--output", help="输出 HTML 文件路径；不传则打印到 stdout")
+    ap.add_argument("--strip-h1", action="store_true", help="剥离正文开头的首个 # 一级标题（推草稿箱时标题由元数据承载）")
     return ap.parse_args()
 
 
@@ -217,7 +342,7 @@ def main():
     else:
         md_text = sys.stdin.read()
 
-    out_html = render(md_text)
+    out_html = render(md_text, strip_h1=args.strip_h1)
 
     if args.output:
         Path(args.output).write_text(out_html, encoding="utf-8")
