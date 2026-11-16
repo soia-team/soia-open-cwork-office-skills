@@ -541,6 +541,32 @@ class ArchiveTests(unittest.TestCase):
             self.assertIn("cover: ../../../10_草稿/50_自省/assets/demo/cover.png", text)
             self.assertIn("![图注](../../../10_草稿/50_自省/assets/demo/fig.png)", text)
 
+    def test_extract_article_meta_falls_back_to_preface_without_entering_body(self) -> None:
+        md_text = (
+            "---\n"
+            "title: 半山止息\n"
+            "series_intro: 系列总推荐。\n"
+            "preface: 本篇序言兼平台推荐语。\n"
+            "---\n\n"
+            "# 半山止息\n\n"
+            "正文第一段。\n"
+        )
+        ns = publish.argparse.Namespace(
+            title=None,
+            digest=None,
+            account=None,
+            cover=None,
+            author=None,
+            config=None,
+            theme=None,
+        )
+        meta = publish.extract_article_meta(md_text, Path("demo.md"), ns)
+        html_out = render_wechat.render(md_text, strip_h1=True, theme="minimal")
+        self.assertEqual(meta["digest"], "本篇序言兼平台推荐语。")
+        self.assertNotIn("本篇序言兼平台推荐语", html_out)
+        self.assertNotIn("系列总推荐", html_out)
+        self.assertIn("正文第一段。", html_out)
+
 
 if __name__ == "__main__":
     unittest.main()
