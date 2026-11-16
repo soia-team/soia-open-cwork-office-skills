@@ -3,6 +3,16 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.11.5 — 2026-11-16
+
+为 publish.py 新增微信草稿箱 draft/update 原地覆盖更新与 media_id 持久化支持
+
+## 新增
+- feat(wechat-draft): add in-place draft/update support via --draft-media-id and --save-draft-id (#89)
+
+## 维护
+- chore(release): open next train after v1.11.4 (#88)
+
 ## v1.11.4 — 2026-11-16
 
 规范文档头部「序」（series_intro/preface/digest）只作多平台推荐语而不进公众号正文，支持 preface 摘要回退
