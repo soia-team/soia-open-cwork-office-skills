@@ -3,6 +3,16 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.11.4 — 2026-11-16
+
+规范文档头部「序」（series_intro/preface/digest）只作多平台推荐语而不进公众号正文，支持 preface 摘要回退
+
+## 新增
+- feat(media-skills): keep frontmatter preface/series_intro out of wechat body and support preface digest fallback (#86)
+
+## 维护
+- chore(release): open next train after v1.11.3 (#85)
+
 ## v1.11.3 — 2026-11-16
 
 新增公众号开篇「序」与合集/单篇摘要分离规范，补充原创赞赏作者校验
