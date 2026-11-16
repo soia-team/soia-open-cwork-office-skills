@@ -1,11 +1,11 @@
 ---
 name: soia-media-publish-wechat-draft
 description: 把成文草稿排版成符合微信公众号限制的内联样式 HTML，机械校验通过后推入微信公众号草稿箱；只建草稿，绝不自动群发。Triggers：「把这篇发成公众号」「排版这篇公众号」「推到公众号草稿箱」「公众号 draft」
-version: 3.0.1
+version: 3.1.0
 created_at: 2026-07-02 17:49:40
-updated_at: 2026-08-05 13:00:00
+updated_at: 2026-11-16 11:30:00
 created_by: claude opus 4.6
-updated_by: claude-opus-5
+updated_by: gemini-4-hydrogen
 ---
 
 # soia-media-publish-wechat-draft
@@ -157,28 +157,44 @@ SOIA_MEDIA_PUBLISH_WECHAT_DRAFT_CONFIG_FILE=<custom-config-path>
 
 ### 脚本规格（scripts/）
 
-- `render_wechat.py [--file <in.md>] [--output <out.html>]`（不传 `--file` 则读 stdin，
-  不传 `--output` 则打印到 stdout）：当前推荐渲染器，只用微信平台红线允许的标签/内联
-  样式；`**…**` → 主题色加粗，`==…==` → 红色加粗，`>` 引用 → 金句卡，代码块 → 内联
-  样式 `<section>` 模拟，每个文字节点套 `<span>`。主题色是脚本顶部的 Python 常量，不是
-  CSS 变量。
-- `validate_wechat_html.py [--file <html>] [--json]`（不传 `--file` 则读 stdin）：机械
-  校验上面「微信平台红线」，报告每条违规的行号 + 类型；硬性违规（div/class/id/
-  position/float/media/keyframes/css 变量/`<style>` 块）exit 1，干净 exit 0；裸文字
-  节点降级为 warning，不阻塞。纯 `html.parser` 实现，无第三方依赖。
-- `render.py <in.md> <out.html> [--style tech|editorial]`：早期简版渲染器（tech/
-  editorial 双风格），未做红线校验/`<span>` 包裹，保留给还需要 tech 风格表格/代码高亮
-  的场景——用它渲染完，正式发布前也务必先过 `validate_wechat_html.py`。
-- `publish.py --article <md> --cover <png> [--dry-run]`：渲染 → 传图 / 封面到微信 CDN → `draft/add` 建草稿。凭据从私有 `config.yml` 的 `env.WECHAT_APP_ID` / `env.WECHAT_APP_SECRET` 读。
-- `archive.py --article <md> --url <link>`：frontmatter 置 `status: 已发布` + 记日期 / 链接 + 追加日志。
+- `render_wechat.py [--file <in.md>] [--output <out.html>] [--strip-h1]`（不传 `--file` 则读 stdin，不传 `--output` 则打印到 stdout）：当前推荐渲染器，只用微信平台红线允许的标签/内联样式；支持标题、`**加粗**`（主题色）、`==高亮==`（红色加粗）、`*斜体*`、`~~删除线~~`、Markdown 外链、Obsidian `[[双链]]` 清洗、`>` 金句卡、无序/有序列表、Markdown 表格、分割线、代码块（内联 `<section>` 模拟）、图片与 caption，每个文字节点套 `<span>`。`--strip-h1` 可剥离正文首个 `# ` 一级标题（推草稿箱时标题由元数据字段承载）。
+- `validate_wechat_html.py [--file <html>] [--json]`（不传 `--file` 则读 stdin）：机械校验上面「微信平台红线」，报告每条违规的行号 + 类型；硬性违规（div/class/id/position/float/media/keyframes/css 变量/`<style>` 块）exit 1，干净 exit 0；裸文字节点降级为 warning，不阻塞。纯 `html.parser` 实现，无第三方依赖。
+- `render.py <in.md> <out.html> [--style tech|editorial]`：早期简版渲染器，未做红线校验/`<span>` 包裹，保留兼容使用——用它渲染完，正式发布前也必须过 `validate_wechat_html.py`。
+- `publish.py --article <md> [--cover <png>] [--account <alias>] [--config <path|name>] [--dry-run] [--list-accounts] [--check-auth]`：
+  - 默认使用 `render_wechat.py`（剥离首个 H1）并通过 `validate_wechat_html.py` 红线门禁（硬违规直接阻断）。
+  - `--list-accounts` 脱敏列出已配置的多个公众号账号；`--check-auth` 仅测换取 `access_token` 验证凭据与 IP 白名单；`--config` 可显式指定某个 `.yml` 文件路径或配置目录下文件名（如 `config.<alias>.yml`）。
+  - `--dry-run` 只渲染、校验并核对本地正文图片与封面文件存在性，不调用微信 API。
+  - 正式推送草稿箱顺序：`GET /cgi-bin/token` → 扫描 HTML 本地 `<img>` 调 `POST /cgi-bin/media/uploadimg` 换微信 CDN URL → 封面调 `POST /cgi-bin/material/add_material?type=image` 取 `thumb_media_id` → `POST /cgi-bin/draft/add` 建草稿。**绝不调用群发接口**。
+- `archive.py --article <md> [--url <link>] [--date YYYY-MM-DD] [--platform 公众号] [--account <alias>]`：保留原有 frontmatter 字段与顺序，更新 `tags`（`草稿`/`待审核` → `已发布`）、`status: 已发布`、`published_at`、`platform`、`url`（可选写 `wechat_account`）。
 
 > 首次搭 <1 小时（规则 15 分 + AI 生成脚本 20 分 + Skill 文档 10 分），之后每篇排版 ≈ 0。
+
+### 多账号配置与安全边界
+
+- **两种组织方式均支持**（可单选或混合使用，完整示例见 `assets/config.example.yml`）：
+  1. **单文件多配置**：在私有 `config.yml` 中配置 `accounts:` 与可选 `default_account:`。
+  2. **多文件分账号**：在同目录按名字拆分多个文件，如 `config.<alias>.yml` 或 `accounts/<alias>.yml`（各文件按常规 `env:` 写 `WECHAT_APP_ID` / `WECHAT_APP_SECRET` / `WECHAT_ACCOUNT_NAME`），通过 `--account <alias>` 或 `--config config.<alias>.yml` 指定。
+  - 单账号继续兼容 `env.WECHAT_APP_ID` / `env.WECHAT_APP_SECRET`。
+- **失败关闭（fail-closed）**：配置了多个账号且未设 `default_account` 时，不传 `--account` / `--config`（或 frontmatter `wechat_account`）会直接报错列出可选 alias；显式指定不存在的 `--account` 也绝不静默回退到其他账号。
 
 ## ⚠️ 安全规则（必守）
 
 - **只建草稿，绝不自动群发**——群发必须用户在公众号后台手动点。
-- 凭据存 skill-specific 私有 `config.yml`（`WECHAT_APP_ID` / `WECHAT_APP_SECRET`），**不提交 Git**。
+- 凭据存 skill-specific 私有 `config.yml`（`WECHAT_APP_ID` / `WECHAT_APP_SECRET` 或 `accounts.<alias>`），**不提交 Git**，日志/异常中对 `app_id`/`app_secret`/`access_token` 严格脱敏。
 - 需先在 developers.weixin.qq.com / mp 后台启用开发 API、配 IP 白名单。
+
+## 私密信息与中间数据
+
+- 私有凭据与账号映射只存 `${XDG_CONFIG_HOME:-~/.config}/soia-skills/soia-media-publish-wechat-draft/config.yml`（只读兼容旧 v1 路径并提示迁移）；不写入 vault 正文、公开仓库或日志。
+- 渲染得到的 `.html` 仅作为与源 `.md` 同目录的排版产物；不缓存 `access_token` 到磁盘。
+
+## 验证
+
+运行随仓单元测试（含渲染、红线校验、多账号凭据解析、脱敏、mocked 微信 API 链路与归档回写验证）：
+
+```bash
+python3 -m unittest tests.test_wechat_draft
+```
 
 ## 如何获取并配置微信公众号 AppID / AppSecret
 

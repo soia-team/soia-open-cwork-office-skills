@@ -1,6 +1,27 @@
 # soia-media-publish-wechat-draft private config example.
-# Copy to ~/.config/soia-skills/soia-media-publish-wechat-draft/config.yml.
+# Copy to ~/.config/soia-skills/soia-media-publish-wechat-draft/config.yml (chmod 600).
+#
+# 也支持“多文件分账号配置”（同目录下新建不同 yml 即可，与下方方式一二选一或混合共用共享 env）：
+#   ~/.config/soia-skills/soia-media-publish-wechat-draft/config.<alias>.yml
+#   ~/.config/soia-skills/soia-media-publish-wechat-draft/accounts/<alias>.yml
+# 每个分账号文件直接写 `env: { WECHAT_APP_ID: "...", WECHAT_APP_SECRET: "...", WECHAT_ACCOUNT_NAME: "..." }`，
+# 调用时传 `--account <alias>` 或 `--config config.<alias>.yml` 即可区分。
 
+# 方式一：单文件 config.yml 内多账号配置（推送时通过 --account <alias> 指定）
+default_account: account_main
+accounts:
+  account_main:
+    name: "<示例主号名称>"
+    wechat_id: "<example_wechat_id_1>"
+    app_id: "<YOUR_APP_ID_1>"
+    app_secret: "<YOUR_APP_SECRET_1>"
+  account_alt:
+    name: "<示例副号名称>"
+    wechat_id: "<example_wechat_id_2>"
+    app_id: "<YOUR_APP_ID_2>"
+    app_secret: "<YOUR_APP_SECRET_2>"
+
+# 方式二：单账号兼容配置（或放共享 OBSIDIAN_VAULT）
 env:
   WECHAT_APP_ID: "<YOUR_APP_ID>"
   WECHAT_APP_SECRET: "<YOUR_APP_SECRET>"
