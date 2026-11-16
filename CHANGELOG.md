@@ -3,6 +3,17 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.11.0 — 2026-11-16
+
+补全微信公众号草稿 API 投递、完整 Markdown 排版与多账号配置
+
+## 新增
+- feat(wechat-draft): complete API draft flow, markdown rendering, and multi-account configs (#73)
+
+## 维护
+- chore(release): bump dev train to 1.11.0-SNAPSHOT (#74)
+- chore(release): open next train after v1.10.0 (#72)
+
 ## v1.10.0 — 2026-11-11
 
 并入 5 个内容技能（2 → 7），域展示名改为「办公与内容」；技能名与技能行为不变
