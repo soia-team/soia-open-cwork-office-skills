@@ -279,12 +279,14 @@ def extract_article_meta(md_text: str, md_path: Path, args: argparse.Namespace) 
         except ValueError:
             account_author = ""
     author = (args.author or fm.get("author") or account_author).strip()
+    theme = (getattr(args, "theme", None) or fm.get("wechat_theme") or fm.get("theme") or "default").strip().lower()
     return {
         "title": title,
         "author": author,
         "digest": digest,
         "account": account,
         "cover": cover,
+        "theme": theme,
     }
 
 
@@ -294,11 +296,12 @@ def render_and_validate(
     renderer: str,
     strip_h1: bool,
     html_out: str | None = None,
+    theme: str | None = None,
 ) -> tuple[Path, str]:
     html_path = Path(html_out).expanduser().resolve() if html_out else md_path.with_suffix(".html")
     html_path.parent.mkdir(parents=True, exist_ok=True)
     if renderer == "wechat":
-        html_text = render_wechat.render(md_text, strip_h1=strip_h1)
+        html_text = render_wechat.render(md_text, strip_h1=strip_h1, theme=theme)
         html_path.write_text(html_text, encoding="utf-8")
     else:
         subprocess.run(
@@ -350,6 +353,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--author", help="覆盖作者名")
     ap.add_argument("--digest", help="覆盖摘要（建议 ≤120 字）")
     ap.add_argument("--renderer", default="wechat", choices=["wechat", "legacy"], help="渲染器，默认 wechat")
+    ap.add_argument("--theme", choices=["default", "minimal"], help="wechat 渲染排版主题：default（默认红黑强调）或 minimal（克制纯墨）")
     ap.add_argument("--html-out", help="指定渲染 HTML 输出路径（默认在源 Markdown 同目录生成同名 .html）")
     ap.add_argument("--keep-h1", action="store_true", help="保留正文开头首个 # 一级标题")
     ap.add_argument("--dry-run", action="store_true", help="只渲染、校验并检查本地图片/封面，不调微信 API")
@@ -395,13 +399,18 @@ def main() -> int:
 
     md_text = md_path.read_text(encoding="utf-8")
     meta = extract_article_meta(md_text, md_path, args)
-    html_path, html_text = render_and_validate(
-        md_text,
-        md_path,
-        renderer=args.renderer,
-        strip_h1=not args.keep_h1,
-        html_out=args.html_out,
-    )
+    try:
+        html_path, html_text = render_and_validate(
+            md_text,
+            md_path,
+            renderer=args.renderer,
+            strip_h1=not args.keep_h1,
+            html_out=args.html_out,
+            theme=meta["theme"],
+        )
+    except ValueError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
 
     try:
         local_images = collect_local_images(html_text, md_path.parent)
@@ -428,9 +437,10 @@ def main() -> int:
     if args.dry_run:
         account_label = meta["account"] or "(未指定，推送时按配置解析)"
         author_part = f" | 作者={meta['author']}" if meta["author"] else ""
+        theme_part = f" | 主题={meta['theme']}" if meta["theme"] != "default" else ""
         print(f"[dry-run] 渲染并校验通过：{html_path}")
         print(
-            f"[dry-run] 标题={meta['title']!r}{author_part} | 账号={account_label} | "
+            f"[dry-run] 标题={meta['title']!r}{author_part}{theme_part} | 账号={account_label} | "
             f"本地正文图={len(local_images)} 张 | 封面={cover_path or '未指定'}"
         )
         print("[dry-run] 未推送远端。确认参数与封面后去掉 --dry-run 即可建草稿。")

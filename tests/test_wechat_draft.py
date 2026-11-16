@@ -130,6 +130,30 @@ class WeChatRenderAndValidateTests(unittest.TestCase):
         self.assertEqual(checker.errors, [])
         self.assertEqual(checker.warnings, [])
 
+    def test_minimal_theme_uses_ink_palette_and_rejects_unknown_theme(self) -> None:
+        md = (
+            "---\n"
+            "title: 克制随笔\n"
+            "wechat_theme: minimal\n"
+            "---\n\n"
+            "正文含**主题加粗**和==高亮==以及[外链](https://example.com)。\n\n"
+            "> 引文内容\n"
+        )
+        html_out = render_wechat.render(md, strip_h1=True)
+        self.assertIn("#191c1b", html_out)
+        self.assertIn("#8c8376", html_out)
+        self.assertNotIn("#c0392b", html_out)
+        self.assertNotIn("#e74c3c", html_out)
+
+        checker = WeChatHTMLChecker()
+        checker.feed(html_out)
+        checker.close()
+        self.assertEqual(checker.errors, [])
+        self.assertEqual(checker.warnings, [])
+
+        with self.assertRaises(ValueError):
+            render_wechat.render(md, theme="nonexistent")
+
 
 class PublishEnvMultiAccountTests(unittest.TestCase):
     def test_multi_account_resolution_and_fail_closed_behavior(self) -> None:
