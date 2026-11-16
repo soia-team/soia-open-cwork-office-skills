@@ -1,9 +1,9 @@
 ---
 name: soia-media-publish-wechat-draft
 description: 把成文草稿排版成符合微信公众号限制的内联样式 HTML，机械校验通过后推入微信公众号草稿箱；只建草稿，绝不自动群发。Triggers：「把这篇发成公众号」「排版这篇公众号」「推到公众号草稿箱」「公众号 draft」
-version: 3.2.0
+version: 3.2.1
 created_at: 2026-07-02 17:49:40
-updated_at: 2026-11-16 16:20:00
+updated_at: 2026-11-16 17:05:00
 created_by: claude opus 4.6
 updated_by: gemini-4-hydrogen
 ---
@@ -144,7 +144,7 @@ SOIA_MEDIA_PUBLISH_WECHAT_DRAFT_CONFIG_FILE=<custom-config-path>
 
 ### 6 步流程
 
-1. **检查** frontmatter 的 `workflow_type` / `wechat_theme`（默认红黑强调，或 `minimal` 克制纯墨）与推荐语 `digest`（公众号消息/转发卡片建议控制在 **20–40 字**，不截断）。
+1. **检查** frontmatter 的 `workflow_type` / `wechat_theme`（默认红黑强调，或 `minimal` 克制纯墨）、单篇推荐语 `digest`（公众号消息/转发卡片建议控制在 **20–40 字**，必须对应本篇内容而非直接拿合集/系列推荐语顶替），以及**正文头部「序」**（公众号成文开篇宜有短「序」定调并交代系列/阅读语境）；若文章拟开启原创与赞赏，核对 `author` 与公众号绑定的**微信赞赏账户名**一致。
 2. **发表前勘误与克制润色**：先核查重字、错别字与标点缺漏并呈报勘误对照（只检不擅改原意）；随笔/自省类优先 `minimal` 纯墨主题或克制加粗，避免大面积鲜红 `==高亮==` 破坏书卷静气；技术长文按密度模型保持锚点层 ≤5、标记层每段 1–3。
 3. **渲染**：`scripts/render_wechat.py` 把 Markdown → 遵守"微信平台红线"的内联样式 HTML。
 4. **校验**：`scripts/validate_wechat_html.py` 机械复核红线——有硬性违规先回到渲染结果/
