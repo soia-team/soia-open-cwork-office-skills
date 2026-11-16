@@ -567,6 +567,85 @@ class ArchiveTests(unittest.TestCase):
         self.assertNotIn("系列总推荐", html_out)
         self.assertIn("正文第一段。", html_out)
 
+    def test_update_draft_uses_frontmatter_media_id_and_saves_back(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cover = root / "cover.png"
+            cover.write_bytes(b"\x89PNG\r\n\x1a\nc")
+            article = root / "post.md"
+            article.write_text(
+                "---\n"
+                "title: 更新草稿测试\n"
+                "wechat_account: zbt\n"
+                "wechat_draft_media_id: OLD_DRAFT_ID\n"
+                "cover: cover.png\n"
+                "---\n\n"
+                "# 更新草稿测试\n\n"
+                "正文段落。\n",
+                encoding="utf-8",
+            )
+            calls: list[tuple[str, dict]] = []
+
+            def fake_post_json(url: str, payload: dict, timeout: int = 30, secrets: list[str] | None = None) -> dict:
+                calls.append((url, payload))
+                return {"errcode": 0, "errmsg": "ok"}
+
+            out_buf = io.StringIO()
+            with mock.patch.object(publish, "load_private_env", return_value=None), mock.patch.object(
+                publish, "resolve_credentials", return_value=("app1", "sec1", "zbt")
+            ), mock.patch.object(publish, "fetch_access_token", return_value="tok1"), mock.patch.object(
+                publish, "upload_cover_material", return_value="THUMB1"
+            ), mock.patch.object(publish, "_http_post_json", side_effect=fake_post_json), mock.patch.object(
+                sys,
+                "argv",
+                ["publish.py", "--article", str(article), "--save-draft-id"],
+            ):
+                with redirect_stdout(out_buf):
+                    rc = publish.main()
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(calls), 1)
+            self.assertIn("/draft/update?", calls[0][0])
+            self.assertEqual(calls[0][1]["media_id"], "OLD_DRAFT_ID")
+            self.assertEqual(calls[0][1]["index"], 0)
+            self.assertEqual(calls[0][1]["articles"]["title"], "更新草稿测试")
+            self.assertIn("已原地更新微信公众号草稿", out_buf.getvalue())
+            self.assertIn("wechat_draft_media_id: OLD_DRAFT_ID", article.read_text(encoding="utf-8"))
+
+    def test_save_draft_id_persists_new_media_id_to_frontmatter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cover = root / "cover.png"
+            cover.write_bytes(b"\x89PNG\r\n\x1a\nc")
+            article = root / "new_post.md"
+            article.write_text(
+                "---\n"
+                "title: 新建并写回ID\n"
+                "wechat_account: zbt\n"
+                "cover: cover.png\n"
+                "---\n\n"
+                "正文段落。\n",
+                encoding="utf-8",
+            )
+            out_buf = io.StringIO()
+            with mock.patch.object(publish, "load_private_env", return_value=None), mock.patch.object(
+                publish, "resolve_credentials", return_value=("app1", "sec1", "zbt")
+            ), mock.patch.object(publish, "fetch_access_token", return_value="tok1"), mock.patch.object(
+                publish, "upload_cover_material", return_value="THUMB1"
+            ), mock.patch.object(
+                publish, "_http_post_json", return_value={"media_id": "NEW_DRAFT_999"}
+            ), mock.patch.object(
+                sys,
+                "argv",
+                ["publish.py", "--article", str(article), "--save-draft-id"],
+            ):
+                with redirect_stdout(out_buf):
+                    rc = publish.main()
+
+            self.assertEqual(rc, 0)
+            text = article.read_text(encoding="utf-8")
+            self.assertIn("wechat_draft_media_id: NEW_DRAFT_999", text)
+
 
 if __name__ == "__main__":
     unittest.main()

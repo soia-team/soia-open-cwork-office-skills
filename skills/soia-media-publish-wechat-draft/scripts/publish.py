@@ -52,6 +52,8 @@ class WeChatAPIError(RuntimeError):
             hint = "（提示：该接口仅对已认证的订阅号/服务号开放，或当前账号未开通草稿箱/素材权限）"
         elif errcode == 40001:
             hint = "（提示：AppSecret 无效或已被重置，请核对私有 config.yml）"
+        elif errcode == 40007:
+            hint = "（提示：media_id 或 thumb_media_id 无效；若旧草稿已在后台删除，请去掉 --draft-media-id 或清空 wechat_draft_media_id）"
         super().__init__(f"微信接口 {endpoint} 失败：errcode={errcode}, errmsg={errmsg}{hint}")
 
 
@@ -180,6 +182,42 @@ def create_draft(access_token: str, article_payload: dict, secrets: list[str]) -
     return str(media_id)
 
 
+def update_draft(
+    access_token: str,
+    media_id: str,
+    article_payload: dict,
+    secrets: list[str],
+    *,
+    index: int = 0,
+) -> str:
+    query = urllib.parse.urlencode({"access_token": access_token})
+    url = f"{WECHAT_API_BASE}/draft/update?{query}"
+    body = {"media_id": media_id, "index": index, "articles": article_payload}
+    _ensure_ok("draft/update", _http_post_json(url, body, secrets=secrets))
+    return media_id
+
+
+def _upsert_frontmatter_key(md_text: str, key: str, value: str) -> str:
+    """Update or insert a single scalar key inside YAML frontmatter while keeping existing order."""
+    normalized = md_text.replace("\r\n", "\n")
+    m = re.match(r"^---\n(.*?)\n---\n?", normalized, re.DOTALL)
+    if not m:
+        return f"---\n{key}: {value}\n---\n\n{normalized}"
+    lines = m.group(1).splitlines()
+    replaced = False
+    new_lines: list[str] = []
+    for line in lines:
+        if ":" in line and not line.startswith((" ", "\t", "-")) and line.split(":", 1)[0].strip() == key:
+            new_lines.append(f"{key}: {value}")
+            replaced = True
+        else:
+            new_lines.append(line)
+    if not replaced:
+        new_lines.append(f"{key}: {value}")
+    suffix = normalized[m.end():]
+    return "---\n" + "\n".join(new_lines) + "\n---\n" + suffix
+
+
 def _find_obsidian_attachment(filename: str, base_dir: Path) -> Path | None:
     """Resolve short Obsidian embed names (`![[foo.png]]`) within local/ancestor asset dirs, fail-closed on ambiguity."""
     seen_roots: list[Path] = [base_dir]
@@ -283,6 +321,7 @@ def extract_article_meta(md_text: str, md_path: Path, args: argparse.Namespace) 
             account_author = ""
     author = (args.author or fm.get("author") or account_author).strip()
     theme = (getattr(args, "theme", None) or fm.get("wechat_theme") or fm.get("theme") or "default").strip().lower()
+    draft_media_id = (getattr(args, "draft_media_id", None) or fm.get("wechat_draft_media_id") or "").strip()
     return {
         "title": title,
         "author": author,
@@ -290,6 +329,7 @@ def extract_article_meta(md_text: str, md_path: Path, args: argparse.Namespace) 
         "account": account,
         "cover": cover,
         "theme": theme,
+        "draft_media_id": draft_media_id,
     }
 
 
@@ -359,6 +399,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--theme", choices=["default", "minimal"], help="wechat 渲染排版主题：default（默认红黑强调）或 minimal（克制纯墨）")
     ap.add_argument("--html-out", help="指定渲染 HTML 输出路径（默认在源 Markdown 同目录生成同名 .html）")
     ap.add_argument("--keep-h1", action="store_true", help="保留正文开头首个 # 一级标题")
+    ap.add_argument("--draft-media-id", help="原地更新指定微信草稿的 media_id（默认读取 frontmatter wechat_draft_media_id；均空时调 draft/add 新建）")
+    ap.add_argument("--draft-index", type=int, default=0, help="调用 draft/update 更新多图文时要覆盖的文章索引，默认 0（首篇）")
+    ap.add_argument("--save-draft-id", action="store_true", help="推草稿成功后将 wechat_draft_media_id 写回源 Markdown frontmatter，后续重推自动原地更新")
     ap.add_argument("--dry-run", action="store_true", help="只渲染、校验并检查本地图片/封面，不调微信 API")
     ap.add_argument("--list-accounts", action="store_true", help="列出已配置的公众号账号（含 config.yml 与分账号 yml）")
     ap.add_argument("--check-auth", action="store_true", help="仅测试换取 access_token 验证凭据与 IP 白名单")
@@ -441,9 +484,10 @@ def main() -> int:
         account_label = meta["account"] or "(未指定，推送时按配置解析)"
         author_part = f" | 作者={meta['author']}" if meta["author"] else ""
         theme_part = f" | 主题={meta['theme']}" if meta["theme"] != "default" else ""
+        draft_part = f" | 原地更新草稿={meta['draft_media_id']}" if meta["draft_media_id"] else " | 模式=新建草稿"
         print(f"[dry-run] 渲染并校验通过：{html_path}")
         print(
-            f"[dry-run] 标题={meta['title']!r}{author_part}{theme_part} | 账号={account_label} | "
+            f"[dry-run] 标题={meta['title']!r}{author_part}{theme_part}{draft_part} | 账号={account_label} | "
             f"本地正文图={len(local_images)} 张 | 封面={cover_path or '未指定'}"
         )
         print("[dry-run] 未推送远端。确认参数与封面后去掉 --dry-run 即可建草稿。")
@@ -481,13 +525,29 @@ def main() -> int:
         if meta["digest"]:
             article_payload["digest"] = meta["digest"]
 
-        draft_media_id = create_draft(access_token, article_payload, secrets)
+        if meta["draft_media_id"]:
+            draft_media_id = update_draft(
+                access_token,
+                meta["draft_media_id"],
+                article_payload,
+                secrets,
+                index=args.draft_index,
+            )
+            action_label = "已原地更新微信公众号草稿"
+        else:
+            draft_media_id = create_draft(access_token, article_payload, secrets)
+            action_label = "已推入微信公众号草稿箱"
     except (ValueError, RuntimeError, WeChatAPIError) as exc:
         print(f"❌ 推草稿箱失败：{exc}", file=sys.stderr)
         return 1
 
+    if args.save_draft_id and draft_media_id:
+        updated_md = _upsert_frontmatter_key(md_text, "wechat_draft_media_id", draft_media_id)
+        if updated_md != md_text:
+            md_path.write_text(updated_md, encoding="utf-8")
+
     account_display = resolved_account or "default/env"
-    print(f"✅ 已推入微信公众号草稿箱：账号={account_display} | 标题={meta['title']!r} | media_id={draft_media_id}")
+    print(f"✅ {action_label}：账号={account_display} | 标题={meta['title']!r} | media_id={draft_media_id}")
     print(f"   正文图上传={len(local_images)} 张 | HTML={html_path}")
     print("⚠️ 本脚本只建草稿；请在公众号后台预览排版无误后再手动群发，发布后运行 archive.py 留底。")
     return 0
