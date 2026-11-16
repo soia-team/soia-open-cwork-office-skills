@@ -46,6 +46,27 @@ CODE_COLOR = "#476582"
 CAPTION_COLOR = "#888888"
 BORDER_COLOR = "#e5e7eb"
 
+THEMES = {
+    "default": {
+        "body_color": BODY_COLOR,
+        "bold_color": THEME_COLOR,
+        "highlight_color": HIGHLIGHT_COLOR,
+        "link_color": THEME_COLOR,
+        "quote_bg": QUOTE_BG,
+        "quote_border": THEME_COLOR,
+        "line_height": "1.75",
+    },
+    "minimal": {
+        "body_color": "#262826",
+        "bold_color": "#191c1b",
+        "highlight_color": "#191c1b",
+        "link_color": "#4a463f",
+        "quote_bg": "#f7f5ef",
+        "quote_border": "#8c8376",
+        "line_height": "1.85",
+    },
+}
+
 FONT_STACK = "-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif"
 MONO_STACK = "Menlo,Consolas,monospace"
 
@@ -167,10 +188,20 @@ def _wikilink_label(raw_inner):
     return base or target
 
 
-def render_inline(text):
+def _resolve_theme(fm, explicit_theme=None):
+    name = (explicit_theme or fm.get("wechat_theme") or fm.get("theme") or "default").strip().lower()
+    if name not in THEMES:
+        supported = ", ".join(sorted(THEMES))
+        raise ValueError(f"不支持的排版主题 {name!r}（可选：{supported}）。")
+    return THEMES[name]
+
+
+def render_inline(text, theme_cfg=None):
     """行内标记：`代码` / [[双链]] / [链接](url) / ==高亮== / **加粗** / ~~删除~~ / *斜体*；其余纯文本套 <span>。"""
     if text == "":
         return span("")
+    cfg = theme_cfg or THEMES["default"]
+    link_style = f"color:{cfg['link_color']};text-decoration:underline"
     out = []
     pos = 0
     for m in INLINE_TOKEN_RE.finditer(text):
@@ -184,13 +215,13 @@ def render_inline(text):
         elif link_text is not None:
             url = (link_url or "").strip()
             if url.startswith(("http://", "https://")):
-                out.append(f'<a href="{esc_attr(url)}" style="{LINK_STYLE}">{span(link_text)}</a>')
+                out.append(f'<a href="{esc_attr(url)}" style="{link_style}">{span(link_text)}</a>')
             else:
                 out.append(span(link_text))
         elif hi is not None:
-            out.append(f'<strong style="color:{HIGHLIGHT_COLOR}">{span(hi)}</strong>')
+            out.append(f'<strong style="color:{cfg["highlight_color"]}">{span(hi)}</strong>')
         elif bold is not None:
-            out.append(f'<strong style="color:{THEME_COLOR}">{span(bold)}</strong>')
+            out.append(f'<strong style="color:{cfg["bold_color"]}">{span(bold)}</strong>')
         elif strike is not None:
             out.append(f'<del style="{DEL_STYLE}">{span(strike)}</del>')
         else:
@@ -210,24 +241,34 @@ def _split_table_row(line):
     return [cell.strip() for cell in re.split(r"(?<!\\)\|", row)]
 
 
-def _render_table(headers, rows):
-    th_cells = "".join(f'<th style="{TH_STYLE}">{render_inline(h)}</th>' for h in headers)
+def _render_table(headers, rows, theme_cfg=None):
+    cfg = theme_cfg or THEMES["default"]
+    th_cells = "".join(f'<th style="{TH_STYLE}">{render_inline(h, cfg)}</th>' for h in headers)
     thead = f"<thead><tr>{th_cells}</tr></thead>"
     body_rows = []
     for row in rows:
         padded = row + [""] * max(0, len(headers) - len(row))
-        tds = "".join(f'<td style="{TD_STYLE}">{render_inline(cell)}</td>' for cell in padded[:len(headers)])
+        tds = "".join(f'<td style="{TD_STYLE}">{render_inline(cell, cfg)}</td>' for cell in padded[:len(headers)])
         body_rows.append(f"<tr>{tds}</tr>")
     tbody = f"<tbody>{''.join(body_rows)}</tbody>" if body_rows else ""
+    table_style = f"width:100%;border-collapse:collapse;font-size:14px;line-height:1.6;color:{cfg['body_color']}"
     return (
         f'<section style="{TABLE_WRAP_STYLE}">'
-        f'<table style="{TABLE_STYLE}">{thead}{tbody}</table>'
+        f'<table style="{table_style}">{thead}{tbody}</table>'
         f'</section>'
     )
 
 
-def render(md_text, strip_h1=False):
-    _, body = parse_frontmatter(md_text)
+def render(md_text, strip_h1=False, theme=None):
+    fm, body = parse_frontmatter(md_text)
+    cfg = _resolve_theme(fm, explicit_theme=theme)
+    wrapper_style = f"max-width:677px;margin:0 auto;font-family:{FONT_STACK};color:{cfg['body_color']};font-size:16px"
+    body_p_style = f"line-height:{cfg['line_height']};margin:16px 0;color:{cfg['body_color']}"
+    quote_section_style = (
+        f"margin:20px 0;padding:14px 18px;background:{cfg['quote_bg']};"
+        f"border-left:3px solid {cfg['quote_border']};color:{cfg['body_color']};line-height:1.7"
+    )
+    list_style = f"margin:16px 0;padding-left:22px;color:{cfg['body_color']};line-height:{cfg['line_height']}"
     lines = body.splitlines()
     n = len(lines)
     parts = []
@@ -264,7 +305,7 @@ def render(md_text, strip_h1=False):
                 i += 1
                 continue
             seen_non_empty = True
-            content = render_inline(m.group(2).strip())
+            content = render_inline(m.group(2).strip(), cfg)
             parts.append(f'<h{level} style="{H_STYLE}">{content}</h{level}>')
             i += 1
             continue
@@ -285,7 +326,7 @@ def render(md_text, strip_h1=False):
             while i < n and "|" in lines[i].strip() and lines[i].strip():
                 rows.append(_split_table_row(lines[i].strip()))
                 i += 1
-            parts.append(_render_table(headers, rows))
+            parts.append(_render_table(headers, rows, cfg))
             continue
 
         # 引用块（连续 > 行合并成一张金句卡）
@@ -296,9 +337,9 @@ def render(md_text, strip_h1=False):
                 quote_lines.append(lines[i].strip().lstrip(">").strip())
                 i += 1
             inner = "".join(
-                f'<p style="{QUOTE_P_STYLE}">{render_inline(q)}</p>' for q in quote_lines if q
+                f'<p style="{QUOTE_P_STYLE}">{render_inline(q, cfg)}</p>' for q in quote_lines if q
             )
-            parts.append(f'<section style="{QUOTE_SECTION_STYLE}">{inner}</section>')
+            parts.append(f'<section style="{quote_section_style}">{inner}</section>')
             continue
 
         # 无序列表（连续 - / * 行合并）
@@ -312,9 +353,9 @@ def render(md_text, strip_h1=False):
                 items.append(m_item.group(1))
                 i += 1
             li_html = "".join(
-                f'<li style="{LIST_ITEM_STYLE}">{render_inline(t)}</li>' for t in items
+                f'<li style="{LIST_ITEM_STYLE}">{render_inline(t, cfg)}</li>' for t in items
             )
-            parts.append(f'<ul style="{LIST_STYLE}">{li_html}</ul>')
+            parts.append(f'<ul style="{list_style}">{li_html}</ul>')
             continue
 
         # 有序列表（连续 1. 2. 行合并）
@@ -328,9 +369,9 @@ def render(md_text, strip_h1=False):
                 items.append(m_item.group(1))
                 i += 1
             li_html = "".join(
-                f'<li style="{LIST_ITEM_STYLE}">{render_inline(t)}</li>' for t in items
+                f'<li style="{LIST_ITEM_STYLE}">{render_inline(t, cfg)}</li>' for t in items
             )
-            parts.append(f'<ol style="{LIST_STYLE}">{li_html}</ol>')
+            parts.append(f'<ol style="{list_style}">{li_html}</ol>')
             continue
 
         # 图片（支持 ![alt](url) 与 Obsidian ![[path|alt|width]]）
@@ -353,12 +394,12 @@ def render(md_text, strip_h1=False):
 
         # 普通段落
         seen_non_empty = True
-        parts.append(f'<p style="{BODY_P_STYLE}">{render_inline(stripped)}</p>')
+        parts.append(f'<p style="{body_p_style}">{render_inline(stripped, cfg)}</p>')
         i += 1
 
     body_html = "\n".join(parts)
     # 最外层容器同样不能用 <div>，用 <section> 承载，纯内联样式、无 class/id
-    return f'<section style="{WRAPPER_STYLE}">\n{body_html}\n</section>\n'
+    return f'<section style="{wrapper_style}">\n{body_html}\n</section>\n'
 
 
 def parse_args():
@@ -369,6 +410,7 @@ def parse_args():
     ap.add_argument("--file", help="输入 Markdown 文件路径；不传则从 stdin 读取")
     ap.add_argument("--output", help="输出 HTML 文件路径；不传则打印到 stdout")
     ap.add_argument("--strip-h1", action="store_true", help="剥离正文开头的首个 # 一级标题（推草稿箱时标题由元数据承载）")
+    ap.add_argument("--theme", choices=sorted(THEMES), help="排版主题：default（默认红黑强调）或 minimal（克制纯墨随笔）")
     return ap.parse_args()
 
 
@@ -379,7 +421,7 @@ def main():
     else:
         md_text = sys.stdin.read()
 
-    out_html = render(md_text, strip_h1=args.strip_h1)
+    out_html = render(md_text, strip_h1=args.strip_h1, theme=args.theme)
 
     if args.output:
         Path(args.output).write_text(out_html, encoding="utf-8")

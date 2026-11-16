@@ -1,9 +1,9 @@
 ---
 name: soia-media-publish-wechat-draft
 description: 把成文草稿排版成符合微信公众号限制的内联样式 HTML，机械校验通过后推入微信公众号草稿箱；只建草稿，绝不自动群发。Triggers：「把这篇发成公众号」「排版这篇公众号」「推到公众号草稿箱」「公众号 draft」
-version: 3.1.1
+version: 3.2.0
 created_at: 2026-07-02 17:49:40
-updated_at: 2026-11-16 15:45:00
+updated_at: 2026-11-16 16:20:00
 created_by: claude opus 4.6
 updated_by: gemini-4-hydrogen
 ---
@@ -144,8 +144,8 @@ SOIA_MEDIA_PUBLISH_WECHAT_DRAFT_CONFIG_FILE=<custom-config-path>
 
 ### 6 步流程
 
-1. **检查** frontmatter 的 `workflow_type`。
-2. **强调润色**：AI 按密度模型给全文标 `**` / `==` / 引用块，核对锚点层 ≤5、标记层每段 1–3。
+1. **检查** frontmatter 的 `workflow_type` / `wechat_theme`（默认红黑强调，或 `minimal` 克制纯墨）与推荐语 `digest`（公众号消息/转发卡片建议控制在 **20–40 字**，不截断）。
+2. **发表前勘误与克制润色**：先核查重字、错别字与标点缺漏并呈报勘误对照（只检不擅改原意）；随笔/自省类优先 `minimal` 纯墨主题或克制加粗，避免大面积鲜红 `==高亮==` 破坏书卷静气；技术长文按密度模型保持锚点层 ≤5、标记层每段 1–3。
 3. **渲染**：`scripts/render_wechat.py` 把 Markdown → 遵守"微信平台红线"的内联样式 HTML。
 4. **校验**：`scripts/validate_wechat_html.py` 机械复核红线——有硬性违规先回到渲染结果/
    脚本修，通过（exit 0）才能进入下一步；warning 不阻塞，但建议顺手清一遍。
@@ -157,10 +157,10 @@ SOIA_MEDIA_PUBLISH_WECHAT_DRAFT_CONFIG_FILE=<custom-config-path>
 
 ### 脚本规格（scripts/）
 
-- `render_wechat.py [--file <in.md>] [--output <out.html>] [--strip-h1]`（不传 `--file` 则读 stdin，不传 `--output` 则打印到 stdout）：当前推荐渲染器，只用微信平台红线允许的标签/内联样式；支持标题、`**加粗**`（主题色）、`==高亮==`（红色加粗）、`*斜体*`、`~~删除线~~`、Markdown 外链、Obsidian `[[双链]]` 清洗、`>` 金句卡、无序/有序列表、Markdown 表格、分割线、代码块（内联 `<section>` 模拟）、标准 Markdown 图片及 Obsidian 图片嵌入（如 `![[img.png|图注|600]]`，自动忽略纯宽度后缀）与 caption，每个文字节点套 `<span>`。`--strip-h1` 可剥离正文首个 `# ` 一级标题（推草稿箱时标题由元数据字段承载）；frontmatter 解析自动忽略未加引号字段后的行内 `# 注释`。
+- `render_wechat.py [--file <in.md>] [--output <out.html>] [--strip-h1] [--theme default|minimal]`（不传 `--file` 则读 stdin，不传 `--output` 则打印到 stdout）：当前推荐渲染器，只用微信平台红线允许的标签/内联样式；`--theme minimal`（或 frontmatter `wechat_theme: minimal`）使用克制纯墨强调与暖灰引文边线，适合自省随笔。支持标题、`**加粗**`、`==高亮==`、`*斜体*`、`~~删除线~~`、Markdown 外链、Obsidian `[[双链]]` 清洗、`>` 金句卡、无序/有序列表、Markdown 表格、分割线、代码块（内联 `<section>` 模拟）、标准 Markdown 图片及 Obsidian 图片嵌入（如 `![[img.png|图注|600]]`，自动忽略纯宽度后缀）与 caption，每个文字节点套 `<span>`。`--strip-h1` 可剥离正文首个 `# ` 一级标题（推草稿箱时标题由元数据字段承载）；frontmatter 解析自动忽略未加引号字段后的行内 `# 注释`。
 - `validate_wechat_html.py [--file <html>] [--json]`（不传 `--file` 则读 stdin）：机械校验上面「微信平台红线」，报告每条违规的行号 + 类型；硬性违规（div/class/id/position/float/media/keyframes/css 变量/`<style>` 块）exit 1，干净 exit 0；裸文字节点降级为 warning，不阻塞。纯 `html.parser` 实现，无第三方依赖。
 - `render.py <in.md> <out.html> [--style tech|editorial]`：早期简版渲染器，未做红线校验/`<span>` 包裹，保留兼容使用——用它渲染完，正式发布前也必须过 `validate_wechat_html.py`。
-- `publish.py --article <md> [--cover <png>] [--account <alias>] [--config <path|name>] [--html-out <path>] [--dry-run] [--list-accounts] [--check-auth]`：
+- `publish.py --article <md> [--cover <png>] [--account <alias>] [--config <path|name>] [--theme default|minimal] [--html-out <path>] [--dry-run] [--list-accounts] [--check-auth]`：
   - 默认使用 `render_wechat.py`（剥离首个 H1）并通过 `validate_wechat_html.py` 红线门禁（硬违规直接阻断）；`--html-out` 可将排版 HTML 写到指定路径（不传则写回源 `.md` 同名 `.html`）。
   - 支持 Obsidian 短附件名（如 `![[cover.png]]`）在文章目录及上层 `assets/` / `_attachments/` 唯一匹配（多处重名时 fail-closed 报错）；`author` 按 `--author` → frontmatter `author` → 账号配置 `author` / `WECHAT_AUTHOR` 回退。
   - `--list-accounts` 脱敏列出已配置的多个公众号账号；`--check-auth` 仅测换取 `access_token` 验证凭据与 IP 白名单；`--config` 可显式指定某个 `.yml` 文件路径或配置目录下文件名（如 `config.<alias>.yml`）。
