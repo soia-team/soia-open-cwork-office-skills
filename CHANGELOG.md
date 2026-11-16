@@ -3,6 +3,16 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.11.2 — 2026-11-16
+
+新增 compose 发表前勘误清单与极简意象体模式、公众号 --theme minimal 纯墨排版及无字 2.35:1 封面规范
+
+## 新增
+- feat(media-skills): add compose proofread/minimal-essay guidance, clean wechat cover rules, and --theme minimal (#80)
+
+## 维护
+- chore(release): open next train after v1.11.1 (#79)
+
 ## v1.11.1 — 2026-11-16
 
 增强公众号 Obsidian 双链嵌图/YYYY-MM 归档与默认作者回退，补充生僻字与宽封面 HTML 混合渲染规范
