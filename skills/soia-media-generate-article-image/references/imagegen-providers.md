@@ -42,5 +42,18 @@ gpt-image-2 对**中文密集排版**的能力已可用于生产：实测一张�
 旧结论「imagegen 只出素材、中文密集排版必须 HTML」针对的是上一代模型，**不再作为路由依据**。
 
 仍然不变的是验收：一次正确不等于每次正确，`view_image` 逐图核对文字、数字、
-比例与禁项照旧执行；命令行、URL、版本号等高风险字段核对失败时，该图重生或改走
-`hybrid_exact_text`，不得带病通过。
+比例与禁项照旧执行；命令行、URL、版本号或生僻/形近汉字（如 `亳`/`毫`）等高风险字段核对失败时，**最多重试 2 次扩散修复**，仍失真即切换 `hybrid_exact_text` 或 `html_render`，不得带病通过。
+
+## 宿主内置 image-generator 子代理边界（2026-11-16 实测）
+
+- **输出目录**：部分宿主的内置 `image-generator` 子代理只把结果写入宿主 artifact 目录，不能直接落到 `~/Downloads/...`。主 Agent 必须在 `view_image` 验收后显式转换/复制到 `<output_dir>`（禁止未经 `read_file`/`view_image` 直接搬运）。
+- **宽高比上限**：宿主预设枚举常最高到 `16:9`，不支持直接生成微信头图 `2.35:1`（如 `1880×800`）。处理 `2.35:1` 头图或包含生僻汉字（如 `亳` `U+4EB3`）的场景时，推荐 `hybrid_exact_text`（先让 `image-generator` 出**纯无字**背景底图，再用 HTML/CSS + 无头浏览器按精确像素合成精确文字层，并保留 `html/` 源码）：
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --disable-gpu --force-device-scale-factor=1 \
+  --hide-scrollbars --window-size=1880,800 \
+  --screenshot="<out.png>" "file://<source.html>"
+```
+
+- 无头渲染后仍须用 `sips -g pixelWidth -g pixelHeight` 与 `read_file` 复核真实像素与字形，并在 `manifest.yml` 记为 `render_mode: hybrid_exact_text`（或纯 HTML 的 `html_render`）。

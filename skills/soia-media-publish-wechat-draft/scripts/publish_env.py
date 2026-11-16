@@ -421,6 +421,51 @@ def resolve_credentials(
     return app_id, app_secret, None
 
 
+def resolve_account_meta(
+    account: str | None = None,
+    config_path: Path | None = None,
+    config_file: str | None = None,
+) -> dict[str, str]:
+    """Return non-secret account metadata (`alias`, `name`, `wechat_id`, `author`)."""
+    explicit = config_path is not None or bool(config_file)
+    path = config_path or find_config_path(config_file=config_file)
+    accounts, _, env_map, default_account = _collect_all_accounts(path, include_sidecars=not explicit)
+
+    matched_alias: str | None = None
+    profile: dict[str, str] = {}
+    if account and accounts:
+        matched_alias = _match_account(accounts, account)
+        if matched_alias is not None:
+            profile = accounts[matched_alias]
+    elif explicit and path is not None and not accounts:
+        matched_alias = path.stem
+        profile = env_map
+    elif accounts:
+        if default_account:
+            matched_alias = _match_account(accounts, default_account)
+        elif len(accounts) == 1:
+            matched_alias = next(iter(accounts))
+        if matched_alias is not None:
+            profile = accounts[matched_alias]
+
+    author_raw = (
+        profile.get("author")
+        or profile.get("WECHAT_AUTHOR")
+        or env_map.get("WECHAT_AUTHOR")
+        or os.environ.get("WECHAT_AUTHOR")
+        or ""
+    ).strip()
+    author = "" if _is_placeholder(author_raw) else author_raw
+    name = (profile.get("name") or profile.get("WECHAT_ACCOUNT_NAME") or "").strip()
+    wechat_id = profile.get("wechat_id", "").strip()
+    return {
+        "alias": matched_alias or "",
+        "name": name,
+        "wechat_id": wechat_id,
+        "author": author,
+    }
+
+
 def env_source_hint() -> str:
     return f"{OVERRIDE_CONFIG_NAME}, {OVERRIDE_ENV_NAME}, or {DEFAULT_CONFIG_FILE}"
 
