@@ -1,9 +1,9 @@
 ---
 name: soia-media-generate-article-image
 description: 将文章、开源项目、品牌 Logo 或公开 X Prompt Deck 编译为可验收的图片与矢量资产，按组合轴生成 Prompt 并完成事实、文字和视觉验收。
-version: 3.17.5
+version: 3.17.6
 created_at: 2026-07-09 20:56:44
-updated_at: 2026-11-16 16:20:00
+updated_at: 2026-11-17 10:08:00
 created_by: claude opus 4.6
 updated_by: gemini-4-hydrogen
 ---
@@ -89,7 +89,7 @@ python3 scripts/resolve_prompt_composition.py --list-supported
 
 ## 路由索引
 
-- 普通文章图：读取 [输入契约](references/input-contract.md)、[模板注册表](references/template-registry.yml) 和 [组合索引](references/prompt-composition-index.yml)。
+- 普通文章图：读取 [输入契约](references/input-contract.md)、[模板注册表](references/template-registry.yml) 和 [组合索引](references/prompt-composition-index.yml)；微信公众号成套配图（`wechat-cover` `2.35:1` 头图、`wechat-share` `1:1` 分享方图、`article-inline` `16:9`/`3:2` 正文配图及字号/垂直重心门禁）按 [输入契约](references/input-contract.md) 与 [研究编辑极简模板](references/prompt-editorial-research-minimal.md) 执行。
 - 研究封面/小结：`editorial_research_minimal`；正文小结：`editorial_summary_card`；康奈尔笔记：`cornell_notes`（长文使用 `adaptive_series`，最多 6 页）。
 - 交付选择支持 `social_card | carousel | icon | logo`；社交图使用 `social_skill_catalog`，插件图标使用 `plugin_icon`，品牌 Logo 使用 `brand_logo`。朋友圈单图或小红书轮播的事实和两阶段规则见 [社交卡契约](references/social-card-contract.yml)。
 - 研究封面使用 `editorial_research_minimal`；插件图标和品牌 Logo 的 imagegen 只给方向稿，终稿必须确定性矢量重绘。品牌 Logo 额外读取 [Logo 系统 Prompt](references/prompt-brand-logo.md)。
