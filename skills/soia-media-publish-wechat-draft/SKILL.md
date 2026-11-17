@@ -1,9 +1,9 @@
 ---
 name: soia-media-publish-wechat-draft
 description: 把成文草稿排版成符合微信公众号限制的内联样式 HTML，机械校验通过后推入微信公众号草稿箱；只建草稿，绝不自动群发。Triggers：「把这篇发成公众号」「排版这篇公众号」「推到公众号草稿箱」「公众号 draft」
-version: 3.2.4
+version: 3.3.0
 created_at: 2026-07-02 17:49:40
-updated_at: 2026-11-17 10:05:00
+updated_at: 2026-11-17 11:43:00
 created_by: claude opus 4.6
 updated_by: gemini-4-hydrogen
 ---
@@ -18,7 +18,7 @@ updated_by: gemini-4-hydrogen
 
 ### 这个技能可以做什么
 
-把写好的文章草稿排版成遵守微信公众号限制的内联样式 HTML，机械校验通过后调用微信 `draft/add` API 推到草稿箱。这个技能只建草稿，绝不自动群发。
+对写好的成稿文章默认不改正文、不重写标题，将其排版成遵守微信公众号红线的内联样式 HTML（支持 `default` 与 `minimal` 纯墨主题），同步生成 `<stem>.copy.html` 一键复制与 390px 手机端双比例（`2.35:1` 首图 + 中央 `1:1` 分享安全框 + `5:2` X 封面）预览工作台；支持本地一键复制富文本、浏览器辅助存草稿、官方 API `draft/add` 新建与 `--draft-media-id` (`draft/update`) 原地覆盖更新草稿箱（支持多账号），并在人工发布后通过 `archive.py --move` 连同本地 `assets/` 配图一并归档。只建草稿，绝不自动群发。
 
 | 客户想要 | 技能会做 | 客户能看到 |
 |---|---|---|
@@ -142,32 +142,40 @@ SOIA_MEDIA_PUBLISH_WECHAT_DRAFT_CONFIG_FILE=<custom-config-path>
   `render_wechat.py` 目前是统一简洁主题，`render.py`（早期简版）保留 tech/editorial 两风格。
 - 配图：Alt 为空 → 图下不显示 caption；Alt 有内容 → 写清图里是什么（别用"配图""截图"这种无信息词）。
 
-### 6 步流程
+### 6 步流程与三级渐进发布通道
 
-1. **检查** frontmatter 的 `workflow_type` / `wechat_theme`（默认红黑强调，或 `minimal` 克制纯墨）与文档头部推荐语：`digest` 优先对应本篇单篇内容（**20–40 字**，不拿合集 `series_intro` 顶替；未填 `digest` 时可由 `preface` 回退），以上「序」/推荐语只进入公众号摘要栏而不渲染进正文（正文从首段自然起笔）；若文章拟开启原创与赞赏，核对 `author` 与账号共用的**微信赞赏账户名**一致。
+> **核心生产边界（必守）**：当输入是一篇已经写好的成稿文章时，本技能**默认不改正文内容、不重写标题**，只接管成稿后的配图衔接、内联 HTML 排版、草稿箱投递与发布归档等生产动作（仅在步骤 2 呈报重字/错别字勘误对照供作者拍板，或仅在作者显式要求润色/降重时才修改正文）。
+
+1. **检查元数据与封面/配图规划**：
+   - 检查 frontmatter 的 `workflow_type` / `wechat_theme`（默认红黑强调，或 `minimal` 克制纯墨）与文档头部推荐语：`digest` 优先对应本篇单篇内容（**20–40 字**，不拿合集 `series_intro` 顶替；未填 `digest` 时可由 `preface` 回退），以上「序」/推荐语只进入公众号摘要栏而不渲染进正文（正文从首段自然起笔）；若文章拟开启原创与赞赏，核对 `author` 与账号共用的**微信赞赏账户名**一致。
+   - 若文章尚未配图，先调用 `soia-media-generate-article-image` 生成公众号首图（`2.35:1`，标准 `900×383` 或 2x `1880×800`，确保中央 `1:1` 分享裁切安全区完整，可选联动生成 `5:2` 的 `x-cover.png`），并按**正文三类配图克制原则**（① 流程图/架构图、② 真实操作截图/结果预览图、③ 意境分隔图，全篇 1–3 张，不每小节配图）保存到文章专属资源目录（`assets/<日期-篇名>/` 或 `images/`）。
 2. **发表前勘误与克制润色**：先核查重字、错别字与标点缺漏并呈报勘误对照（只检不擅改原意）；随笔/自省类优先 `minimal` 纯墨主题或克制加粗，避免大面积鲜红 `==高亮==` 破坏书卷静气；技术长文按密度模型保持锚点层 ≤5、标记层每段 1–3。
-3. **渲染**：`scripts/render_wechat.py` 把 Markdown → 遵守"微信平台红线"的内联样式 HTML。
-4. **校验**：`scripts/validate_wechat_html.py` 机械复核红线——有硬性违规先回到渲染结果/
-   脚本修，通过（exit 0）才能进入下一步；warning 不阻塞，但建议顺手清一遍。
-5. **推草稿箱前先确认**：默认执行前确认风格、封面、发布账号这几项——显式调用本 skill、
-   命中 `workflow_type` 默认配置，都只是推荐输入，不构成跳过确认的理由；唯一的跳过条件
-   是客户当前这句话明确说"直接推/不用确认"，跳过后要在回执里说明本次沿用的假设。
-   确认通过后 `scripts/publish.py` → 调微信 `draft/add` 建草稿（图片传 CDN、传封面）。
-6. **人工确认发布后** → `scripts/archive.py` 标记已发布、记链接、更新日志。
+3. **渲染与生成一键复制工作台（`.html` + `.copy.html`）**：
+   - `scripts/render_wechat.py` 把 Markdown → 遵守"微信平台红线"的内联样式 HTML（`<stem>.html`）。
+   - 同时生成 **`<stem>.copy.html` 一键复制与手机端双比例预览工作台**（含 `2.35:1` 首图 + 中央 `1:1` 红色虚线分享安全框预览、`1:1` 转发卡片预览、`5:2` X 封面预览、`390px` 手机视口正文预览、标题/作者/摘要单点复制、「复制公众号富文本」与「复制 HTML 源码」按钮、发布前 7 项检查清单）。
+4. **校验**：`scripts/validate_wechat_html.py` 机械复核红线——有硬性违规先回到渲染结果/脚本修，通过（exit 0）才能进入下一步；warning 不阻塞，但建议顺手清一遍。
+5. **三级渐进投递草稿箱（推草稿前先确认）**：
+   - 默认先执行 `--dry-run` 产出 `<stem>.html` 与 `<stem>.copy.html`，向客户确认风格、封面与投递方式（唯一跳过确认的条件是客户当前明确说“直接推/不用确认”）：
+   - **方式一：本地 `.copy.html` 一键复制富文本（零配置最稳兜底）**——适合未认证个人订阅号（无 `draft/add` 接口权限）、未配 IP 白名单或希望先在本地预览的人。打开 `<stem>.copy.html` 点击「复制公众号富文本」，进入 `https://mp.weixin.qq.com`（新的创作 → 图文消息）直接粘贴并保存草稿。
+   - **方式二：浏览器已登录态辅助存草稿**——客户扫码登录公众号后台后，由浏览器工具将标题、作者、摘要、封面与 `article-wechat.html` 填入图文编辑器并保存草稿（绝不点发表/群发）。
+   - **方式三：官方 API 自动推草稿箱（`scripts/publish.py`）**——已配 `WECHAT_APP_ID` / `WECHAT_APP_SECRET` 与 IP 白名单时，自动上传正文图换微信 CDN URL、上传封面取 `thumb_media_id`，新建走 `draft/add`，修改已有草稿走 `--draft-media-id` (`draft/update`) 原地覆盖（避免草稿箱产生多份重复草稿）。
+6. **草稿箱 7 项预览检查与发布后归档**：
+   - 提醒客户在公众号草稿箱完成 **7 项最终预览检查**（① 封面手机端清晰度与 1:1 裁切框、② 标题错别字与赞赏署名、③ 摘要转发卡片自然度、④ 正文图片完整性、⑤ 手机端段落间距、⑥ 链接可用性、⑦ 结尾无多余 AI 味）后手动发表。
+   - **人工确认发布后** → 运行 `scripts/archive.py --move` 标记 `status: 已发布`、写入文章 URL，并将源草稿 `.md` 与同目录 `assets/<篇名>/` 配图一并迁入 `50_写作与发布/20_发布/YYYY/MM/`（自动清理草稿区临时生成的 `.html` 与 `.copy.html`）。
 
 ### 脚本规格（scripts/）
 
-- `render_wechat.py [--file <in.md>] [--output <out.html>] [--strip-h1] [--theme default|minimal]`（不传 `--file` 则读 stdin，不传 `--output` 则打印到 stdout）：当前推荐渲染器，只用微信平台红线允许的标签/内联样式；`--theme minimal`（或 frontmatter `wechat_theme: minimal`）使用克制纯墨强调与暖灰引文边线，适合自省随笔。支持标题、`**加粗**`、`==高亮==`、`*斜体*`、`~~删除线~~`、Markdown 外链、Obsidian `[[双链]]` 清洗、`>` 金句卡、无序/有序列表、Markdown 表格、分割线、代码块（内联 `<section>` 模拟）、标准 Markdown 图片及 Obsidian 图片嵌入（如 `![[img.png|图注|600]]`，自动忽略纯宽度后缀）与 caption，每个文字节点套 `<span>`。`--strip-h1` 可剥离正文首个 `# ` 一级标题（推草稿箱时标题由元数据字段承载）；frontmatter 解析自动忽略未加引号字段后的行内 `# 注释`。
+- `render_wechat.py [--file <in.md>] [--output <out.html>] [--copy-html <copy.html>] [--cover <png>] [--x-cover <png>] [--strip-h1] [--theme default|minimal]`（不传 `--file` 则读 stdin，不传 `--output` 则打印到 stdout）：当前推荐渲染器，只用微信平台红线允许的标签/内联样式；`--theme minimal`（或 frontmatter `wechat_theme: minimal`）使用克制纯墨强调与暖灰引文边线，适合自省随笔；`--copy-html` 额外生成带双比例封面安全框、390px 手机端预览与「复制公众号富文本」按钮的独立工作台页面。支持标题、`**加粗**`、`==高亮==`、`*斜体*`、`~~删除线~~`、Markdown 外链、Obsidian `[[双链]]` 清洗、`>` 金句卡、无序/有序列表、Markdown 表格、分割线、代码块（内联 `<section>` 模拟）、标准 Markdown 图片及 Obsidian 图片嵌入（如 `![[img.png|图注|600]]`，自动忽略纯宽度后缀）与 caption，每个文字节点套 `<span>`。`--strip-h1` 可剥离正文首个 `# ` 一级标题（推草稿箱时标题由元数据字段承载）；frontmatter 解析自动忽略未加引号字段后的行内 `# 注释`。
 - `validate_wechat_html.py [--file <html>] [--json]`（不传 `--file` 则读 stdin）：机械校验上面「微信平台红线」，报告每条违规的行号 + 类型；硬性违规（div/class/id/position/float/media/keyframes/css 变量/`<style>` 块）exit 1，干净 exit 0；裸文字节点降级为 warning，不阻塞。纯 `html.parser` 实现，无第三方依赖。
 - `render.py <in.md> <out.html> [--style tech|editorial]`：早期简版渲染器，未做红线校验/`<span>` 包裹，保留兼容使用——用它渲染完，正式发布前也必须过 `validate_wechat_html.py`。
-- `publish.py --article <md> [--cover <png>] [--account <alias>] [--config <path|name>] [--theme default|minimal] [--html-out <path>] [--draft-media-id <id>] [--draft-index 0] [--save-draft-id] [--dry-run] [--list-accounts] [--check-auth]`：
-  - 默认使用 `render_wechat.py`（剥离首个 H1）并通过 `validate_wechat_html.py` 红线门禁（硬违规直接阻断）；`--html-out` 可将排版 HTML 写到指定路径（不传则写回源 `.md` 同名 `.html`）。
+- `publish.py --article <md> [--cover <png>] [--x-cover <png>] [--account <alias>] [--config <path|name>] [--theme default|minimal] [--html-out <path>] [--copy-html <path>] [--no-copy-html] [--draft-media-id <id>] [--draft-index 0] [--save-draft-id] [--dry-run] [--list-accounts] [--check-auth]`：
+  - 默认使用 `render_wechat.py`（剥离首个 H1）并通过 `validate_wechat_html.py` 红线门禁（硬违规直接阻断）；`--html-out` 可将排版 HTML 写到指定路径（不传则写回源 `.md` 同名 `.html`），并默认同步生成 `<stem>.copy.html` 一键复制与手机端双比例预览工作台（传 `--no-copy-html` 可关闭）。
   - 支持 Obsidian 短附件名（如 `![[cover.png]]`）在文章目录及上层 `assets/` / `_attachments/` 唯一匹配（多处重名时 fail-closed 报错）；`author` 按 `--author` → frontmatter `author` → 账号配置 `author` / `WECHAT_AUTHOR` 回退。
   - `--draft-media-id`（或 frontmatter `wechat_draft_media_id:`）存在时，自动调微信 `POST /cgi-bin/draft/update` 原地替换该草稿而非再建新草稿；加传 `--save-draft-id` 可把当前草稿 `media_id` 写回源 Markdown frontmatter。
   - `--list-accounts` 脱敏列出已配置的多个公众号账号；`--check-auth` 仅测换取 `access_token` 验证凭据与 IP 白名单；`--config` 可显式指定某个 `.yml` 文件路径或配置目录下文件名（如 `config.<alias>.yml`）。
-  - `--dry-run` 只渲染、校验并核对本地正文图片与封面文件存在性，不调用微信 API。
+  - `--dry-run` 只渲染、校验、生成 `.copy.html` 并核对本地正文图片与封面文件存在性，不调用微信 API。
   - 正式推送草稿箱顺序：`GET /cgi-bin/token` → 扫描 HTML 本地 `<img>` 调 `POST /cgi-bin/media/uploadimg` 换微信 CDN URL → 封面调 `POST /cgi-bin/material/add_material?type=image` 取 `thumb_media_id` → 新建走 `POST /cgi-bin/draft/add` 或原地更新走 `POST /cgi-bin/draft/update`。**绝不调用群发接口**。
-- `archive.py --article <md> [--url <link>] [--date YYYY-MM-DD] [--platform 公众号] [--account <alias>] [--archive-dir <dir>] [--move] [--force]`：保留原有 frontmatter 字段与顺序，更新 `tags`（`草稿`/`待审核` → `已发布`）、`status: 已发布`、`published_at`、`platform`、`url`（可选写 `wechat_account`）；传入 `--archive-dir` 时按 `<dir>/YYYY/MM/YYYY-MM-DD-<平台>-<标题>.md` 归档。传入 `--move` 时，不仅迁出源草稿 `.md` 并清理同目录临时生成的 `<stem>.html`，还会将文章引用的同目录 `assets/<篇名>/` 本地配图一并迁入 `<dir>/YYYY/MM/assets/<篇名>/`，确保发布归档区独立自包含、草稿区只留未发布草稿。
+- `archive.py --article <md> [--url <link>] [--date YYYY-MM-DD] [--platform 公众号] [--account <alias>] [--archive-dir <dir>] [--move] [--force]`：保留原有 frontmatter 字段与顺序，更新 `tags`（`草稿`/`待审核` → `已发布`）、`status: 已发布`、`published_at`、`platform`、`url`（可选写 `wechat_account`）；传入 `--archive-dir` 时按 `<dir>/YYYY/MM/YYYY-MM-DD-<平台>-<标题>.md` 归档。传入 `--move` 时，不仅迁出源草稿 `.md` 并清理同目录临时生成的 `<stem>.html` 与 `<stem>.copy.html`，还会将文章引用的同目录 `assets/<篇名>/` 本地配图一并迁入 `<dir>/YYYY/MM/assets/<篇名>/`，确保发布归档区独立自包含、草稿区只留未发布草稿。
 
 > 首次搭 <1 小时（规则 15 分 + AI 生成脚本 20 分 + Skill 文档 10 分），之后每篇排版 ≈ 0。
 
@@ -192,7 +200,7 @@ SOIA_MEDIA_PUBLISH_WECHAT_DRAFT_CONFIG_FILE=<custom-config-path>
 
 ## 验证
 
-运行随仓单元测试（含渲染、红线校验、多账号凭据解析、脱敏、mocked 微信 API 链路与归档回写验证）：
+运行随仓单元测试与真实 fixture 前向测试（含渲染、红线校验、`.copy.html` 一键复制工作台生成、多账号凭据解析、脱敏、mocked 微信 `draft/add` & `draft/update` 链路与 `archive.py --move` 连带 `assets/` 归档验证）：
 
 ```bash
 python3 -m unittest tests.test_wechat_draft

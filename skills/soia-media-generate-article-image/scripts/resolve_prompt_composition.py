@@ -96,6 +96,7 @@ def _fallbacks(result: dict[str, Any]) -> None:
 
     strategy_by_structure = {
         "knowledge_card": "cjk_exact_text",
+        "mobile_poster_compression": "cjk_exact_text",
         "deck_page": "cjk_exact_text",
         "deck_series": "cjk_exact_text",
         "carousel_sequence": "cjk_exact_text",

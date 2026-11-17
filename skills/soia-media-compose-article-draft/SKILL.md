@@ -1,9 +1,9 @@
 ---
 name: soia-media-compose-article-draft
 description: 把 distill 提炼出的观点写成成文草稿。以用户观点为骨、vault 摘抄为料，生成可继续交给 publish 的文章。可指定公众号/知乎/随笔风格。Triggers：「把这些观点写成一篇」「把 X 主题写成文章」「compose 这篇」「写成草稿」「起草这篇」
-version: 3.1.3
+version: 3.1.4
 created_at: 2026-07-02 17:57:11
-updated_at: 2026-11-17 10:05:00
+updated_at: 2026-11-17 12:15:00
 created_by: claude opus 4.6
 updated_by: gemini-4-hydrogen
 ---
@@ -16,7 +16,7 @@ updated_by: gemini-4-hydrogen
 
 ### 这个技能可以做什么
 
-把 distill 提炼出的观点写成成文草稿。以用户观点为骨、vault 摘抄为料，生成可继续交给 publish 的文章。可指定公众号/知乎/随笔风格
+把 `distill` 提炼出的观点写成成文草稿：以用户观点为骨、vault 摘抄为料，支持公众号、知乎、随笔（含极简意象体）风格；自动分离合集简介（`series_intro`）、开篇引语（`preface`）与单篇摘要（`digest`），并在交付前执行错别字/重字勘误对照与 `6-gram` 原创度防撞门禁（防微信原创声明相似度拦截）。
 
 | 客户想要 | 技能会做 | 客户能看到 |
 |---|---|---|
@@ -59,6 +59,10 @@ SOIA_MEDIA_COMPOSE_ARTICLE_DRAFT_CONFIG_FILE=<custom-config-path>
 - 第三方 skill 只能声明依赖和安装方式，不直接修改第三方 skill 文件。
 
 **WorkBuddy** 使用[专家安装说明](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)，不由 npx 代装。上述命令不构成安装或发布授权。
+
+### 私密信息与中间数据
+
+- 本技能只读写目标 vault 内的观点与草稿文件，不访问外部网络或平台 API；如需配置路径偏好，仅保存在 `${XDG_CONFIG_HOME:-~/.config}/soia-skills/soia-media-compose-article-draft/config.yml`，不写入仓库或日志。
 
 ### 日志与完成回执
 

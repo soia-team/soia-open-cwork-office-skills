@@ -14,9 +14,9 @@ support_catalog:
   counts:
     delivery_presets: 7
     prompt_families: 11
-    information_structures: 8
-    visual_mechanisms: 14
-    aesthetic_systems: 9
+    information_structures: 9
+    visual_mechanisms: 15
+    aesthetic_systems: 10
     text_strategies: 6
     asset_roles: 6
     logo_variants: 4
@@ -295,6 +295,10 @@ axes:
       物料包: campaign_pack
       Logo系统: logo_system
       品牌Logo: logo_system
+      长文转海报: mobile_poster_compression
+      一图读懂: mobile_poster_compression
+      45秒看懂: mobile_poster_compression
+      文章海报: mobile_poster_compression
     options:
       single_hook:
         reference: prompt-structure-single-hook.md
@@ -302,6 +306,9 @@ axes:
       knowledge_card:
         reference: prompt-structure-knowledge-card.md
         contract: "每页 3–5 个可判断信息，卡片之间有明确层级"
+      mobile_poster_compression:
+        reference: prompt-structure-mobile-poster-compression.md
+        contract: "30–45 秒手机阅读压缩：主标题 8–18 字 + 1 句核心判断 + 3–4 组要点，全图可见正文 ≤220 汉字"
       deck_page:
         reference: prompt-structure-deck-page.md
         contract: "每页一个页面角色，标题/焦点视觉/正文/页脚共享基线"
@@ -387,6 +394,18 @@ axes:
       电影光线: cinematic_lighting
       几何图形标: geometric_mark
       几何Logo: geometric_mark
+      中国传统构图: chinese_traditional_composition
+      传统构图: chinese_traditional_composition
+      三远法: chinese_traditional_composition
+      高远法: chinese_traditional_composition
+      深远法: chinese_traditional_composition
+      平远法: chinese_traditional_composition
+      一河两岸: chinese_traditional_composition
+      边角式: chinese_traditional_composition
+      折枝式: chinese_traditional_composition
+      计白当黑: chinese_traditional_composition
+      虚实相生: chinese_traditional_composition
+      350种排版: chinese_traditional_composition
     options:
       typographic_mask:
         reference: prompt-visual-mechanism-typographic-mask.md
@@ -394,6 +413,9 @@ axes:
       oversized_type:
         reference: prompt-visual-mechanism-oversized-type.md
         tags: [large_type, whitespace, color_field, high_contrast]
+      chinese_traditional_composition:
+        reference: prompt-visual-mechanism-chinese-composition.md
+        tags: [three_distances, one_river_two_banks, corner_composition, blank_rhythm, 350_layouts]
       modular_grid:
         reference: prompt-visual-mechanism-modular-grid.md
         tags: [grid, baseline, cards, information_hierarchy]
@@ -444,10 +466,17 @@ axes:
       酒店高级: hospitality_premium
       玩趣像素: playful_pixel
       品牌系统: brand_system
+      中华传统色: chinese_traditional_colors
+      中国传统色: chinese_traditional_colors
+      传统色: chinese_traditional_colors
+      宣纸水墨: chinese_traditional_colors
     options:
       editorial_aesthetic:
         reference: prompt-aesthetic-editorial-system.md
         roles: [background, image_support, subject_color, structural_dark]
+      chinese_traditional_colors:
+        reference: prompt-aesthetic-chinese-traditional-colors.md
+        roles: [paper_base_color, ink_five_tones, mineral_theme_color, vermilion_accent]
       bright_modern:
         reference: prompt-aesthetic-bright-modern-system.md
         roles: [high_key_background, accent, support, structure]

@@ -657,6 +657,8 @@ class ArchiveTests(unittest.TestCase):
             draft = draft_dir / "2026-11-16-半山行.md"
             companion_html = draft_dir / "2026-11-16-半山行.html"
             companion_html.write_text("<section>temp</section>", encoding="utf-8")
+            companion_copy_html = draft_dir / "2026-11-16-半山行.copy.html"
+            companion_copy_html.write_text("<!DOCTYPE html><html></html>", encoding="utf-8")
             draft.write_text(
                 "---\n"
                 "tags: [草稿, 半山观心]\n"
@@ -697,12 +699,54 @@ class ArchiveTests(unittest.TestCase):
             self.assertTrue(dest.is_file())
             self.assertFalse(draft.exists())
             self.assertFalse(companion_html.exists())
+            self.assertFalse(companion_copy_html.exists())
             self.assertFalse((draft_dir / "assets").exists())
             self.assertTrue((archive_root / "2026" / "11" / "assets" / "2026-11-16-半山行" / "cover.png").is_file())
             self.assertTrue((archive_root / "2026" / "11" / "assets" / "2026-11-16-半山行" / "fig.png").is_file())
             text = dest.read_text(encoding="utf-8")
             self.assertIn("cover: assets/2026-11-16-半山行/cover.png", text)
             self.assertIn("![图注](assets/2026-11-16-半山行/fig.png)", text)
+
+    def test_publish_dry_run_generates_copy_html_workbench_with_cover_and_checklist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cover = root / "wechat-cover.png"
+            cover.write_bytes(b"\x89PNG\r\n\x1a\nc")
+            x_cover = root / "x-cover.png"
+            x_cover.write_bytes(b"\x89PNG\r\n\x1a\nx")
+            md_path = root / "post.md"
+            md_path.write_text(
+                "---\n"
+                "title: 一键复制工作台测试\n"
+                "author: 止息\n"
+                "digest: 一句凝练的单篇推荐语\n"
+                "wechat_theme: minimal\n"
+                "cover: wechat-cover.png\n"
+                "x_cover: x-cover.png\n"
+                "---\n\n"
+                "# 一键复制工作台测试\n\n"
+                "正文段落内容。\n",
+                encoding="utf-8",
+            )
+            out_buf = io.StringIO()
+            with mock.patch.object(publish, "load_private_env", return_value=None), mock.patch.object(
+                sys,
+                "argv",
+                ["publish.py", "--article", str(md_path), "--dry-run"],
+            ):
+                with redirect_stdout(out_buf):
+                    rc = publish.main()
+            self.assertEqual(rc, 0)
+            copy_path = root / "post.copy.html"
+            self.assertTrue(copy_path.is_file())
+            copy_html = copy_path.read_text(encoding="utf-8")
+            self.assertIn("复制公众号富文本", copy_html)
+            self.assertIn("复制 HTML 源码", copy_html)
+            self.assertIn("1:1 安全区", copy_html)
+            self.assertIn("wechat-cover.png", copy_html)
+            self.assertIn("x-cover.png", copy_html)
+            self.assertIn("一句凝练的单篇推荐语", copy_html)
+            self.assertIn("发布前 7 项预览检查", copy_html)
 
 
 if __name__ == "__main__":

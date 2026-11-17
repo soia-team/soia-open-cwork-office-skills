@@ -14,7 +14,7 @@
   <img alt="plugin version" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsoia-team%2Fsoia-open-cwork-office-skills%2Fmain%2F.claude-plugin%2Fplugin.json&query=%24.version&label=plugin&color=F5A623&prefix=v">
   <img alt="skills" src="https://img.shields.io/badge/技能-7-brightgreen">
   <img alt="hosts" src="https://img.shields.io/badge/宿主-Claude%20%C2%B7%20Codex%20%C2%B7%20WorkBuddy-8A2BE2">
-  <img alt="always-on cost" src="https://img.shields.io/badge/常驻-~1037%20tok-lightgrey">
+  <img alt="always-on cost" src="https://img.shields.io/badge/常驻-~680%20tok-lightgrey">
   <img alt="license" src="https://img.shields.io/github/license/soia-team/soia-open-cwork-office-skills?color=blue">
 </p>
 
@@ -68,14 +68,14 @@ flowchart LR
 
 | 技能 | 职责 | 开箱 |
 |---|---|:-:|
-| [`soia-media-compose-article-draft`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-compose-article-draft.md) | 以你的观点为骨、vault 摘抄为料写成完整草稿；可指定公众号/知乎/随笔风格 | ✅ |
-| [`soia-media-generate-article-image`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-generate-article-image.md) | 生成封面、正文小结卡、康奈尔笔记图或视觉隐喻海报，含 Prompt 落盘与位图验收 | 🟡 |
+| [`soia-media-compose-article-draft`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-compose-article-draft.md) | 以你的观点为骨、vault 摘抄为料写成完整草稿；支持公众号/知乎/随笔风格、单篇 `digest` 与「序」分离、发表前勘误及 `6-gram` 原创度防撞门禁 | ✅ |
+| [`soia-media-generate-article-image`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-generate-article-image.md) | 生成公众号 `2.35:1` 首图（含中央 `1:1` 分享安全区）与 `5:2` X 封面、正文三类配图、30–45 秒一图读懂海报（正文 ≤220 字）、康奈尔笔记图及品牌 Logo，内置中国传统构图 20 式与中华传统色 | 🟡 |
 
 ### 04 平台改写与落草稿　`一份成文 → 三平台可发状态`
 
 | 技能 | 职责 | 开箱 |
 |---|---|:-:|
-| [`soia-media-publish-wechat-draft`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-publish-wechat-draft.md) | 排版成符合公众号限制的内联样式 HTML，机械校验通过后推入草稿箱 | 🟡 |
+| [`soia-media-publish-wechat-draft`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-publish-wechat-draft.md) | 对已成稿文章默认不改正文，排版为符合公众号红线的内联样式 HTML，同步生成 `.copy.html` 一键复制与 390px 手机端双比例预览工作台；支持多账号、官方 API `draft/add` 新建与 `draft/update` 原地更新草稿箱，发布后连同本地配图归档 | 🟡 |
 | [`soia-media-publish-rednote-card`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-publish-rednote-card.md) | 改写成小红书笔记：吸睛标题、3–5 段短文、话题标签与配图建议 | ✅ |
 | [`soia-media-publish-x`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-publish-x.md) | 改写为带编号、符合字数限制的 X thread，可按授权存草稿；或把 Markdown 成文上传到 X Articles 草稿箱并校验格式 | 🟡 |
 
@@ -103,7 +103,7 @@ python3 <soia-open-skills>/skills/soia-meta-skill-release/scripts/install_workbu
 
 装完重启客户端，在【专家中心 → 我的专家】召唤 **Soia · 办公与内容助手**。
 
-> **常驻成本 ~1037 tok**。不用时 `claude plugin disable soia-cwork-office@soia` 降到零，随时开回来。
+> **常驻成本 ~680 tok**。不用时 `claude plugin disable soia-cwork-office@soia` 降到零，随时开回来。
 > 项目单技能：`npx skills add soia-team/soia-open-cwork-office-skills -a <明确宿主> -s <技能名>`；仅明确选择全局时加 `-g`。与域插件二选一，避免双份索引各自漂移。
 
 ## 不负责什么

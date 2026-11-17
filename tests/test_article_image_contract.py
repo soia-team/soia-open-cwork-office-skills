@@ -414,6 +414,20 @@ class ArticleImageContractTest(unittest.TestCase):
         self.assertIn("52px", quality_gates)
         self.assertIn("800×800", quality_gates)
 
+    def test_chinese_composition_traditional_colors_and_poster_compression_resolve(self) -> None:
+        resolver = runpy.run_path(
+            str(SKILL / "scripts" / "resolve_prompt_composition.py")
+        )
+        index = yaml.safe_load((SKILL / "references" / "prompt-composition-index.yml").read_text(encoding="utf-8"))
+        q = resolver["resolve_query"]("古籍拓印 x 平远法 x 中华传统色 x 一图读懂", index)
+        self.assertEqual(q["normalized"]["family"], "archival_print")
+        self.assertEqual(q["normalized"]["visual_mechanism"], "chinese_traditional_composition")
+        self.assertEqual(q["normalized"]["aesthetic_system"], "chinese_traditional_colors")
+        self.assertEqual(q["normalized"]["information_structure"], "mobile_poster_compression")
+        self.assertIn("prompt-visual-mechanism-chinese-composition.md", q["references"])
+        self.assertIn("prompt-aesthetic-chinese-traditional-colors.md", q["references"])
+        self.assertIn("prompt-structure-mobile-poster-compression.md", q["references"])
+
 
 if __name__ == "__main__":
     unittest.main()

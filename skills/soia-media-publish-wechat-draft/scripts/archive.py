@@ -239,6 +239,9 @@ def main() -> int:
             companion_html = path.with_suffix(".html")
             if companion_html.is_file():
                 companion_html.unlink()
+            companion_copy_html = path.with_suffix(".copy.html")
+            if companion_copy_html.is_file():
+                companion_copy_html.unlink()
             print(f"✅ 已移动归档：{dest_path} → status: 已发布，published_at: {pub_date}，platform: {args.platform}")
         else:
             final_text = _rebase_relative_links(updated, path.parent, dest_path.parent)
