@@ -3,6 +3,16 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.11.7 — 2026-11-17
+
+新增中国传统构图20式与中华传统色、45秒一图读懂手机海报压缩及公众号 copy.html 一键复制与双比例预览工作台
+
+## 新增
+- feat(media-skills): add Chinese traditional composition/colors, 45s mobile poster compression, and copy.html workbench (#95)
+
+## 维护
+- chore(release): open next train after v1.11.6 (#94)
+
 ## v1.11.6 — 2026-11-17
 
 完善公众号封面/分享图/正文配图成套规格与字号门禁，增强 archive.py --move 静态资源连带迁移，新增 compose 微信原创去重门禁
