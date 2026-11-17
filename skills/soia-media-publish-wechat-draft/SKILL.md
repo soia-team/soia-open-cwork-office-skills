@@ -1,9 +1,9 @@
 ---
 name: soia-media-publish-wechat-draft
 description: 把成文草稿排版成符合微信公众号限制的内联样式 HTML，机械校验通过后推入微信公众号草稿箱；只建草稿，绝不自动群发。Triggers：「把这篇发成公众号」「排版这篇公众号」「推到公众号草稿箱」「公众号 draft」
-version: 3.2.3
+version: 3.2.4
 created_at: 2026-07-02 17:49:40
-updated_at: 2026-11-16 18:05:00
+updated_at: 2026-11-17 10:05:00
 created_by: claude opus 4.6
 updated_by: gemini-4-hydrogen
 ---
@@ -167,7 +167,7 @@ SOIA_MEDIA_PUBLISH_WECHAT_DRAFT_CONFIG_FILE=<custom-config-path>
   - `--list-accounts` 脱敏列出已配置的多个公众号账号；`--check-auth` 仅测换取 `access_token` 验证凭据与 IP 白名单；`--config` 可显式指定某个 `.yml` 文件路径或配置目录下文件名（如 `config.<alias>.yml`）。
   - `--dry-run` 只渲染、校验并核对本地正文图片与封面文件存在性，不调用微信 API。
   - 正式推送草稿箱顺序：`GET /cgi-bin/token` → 扫描 HTML 本地 `<img>` 调 `POST /cgi-bin/media/uploadimg` 换微信 CDN URL → 封面调 `POST /cgi-bin/material/add_material?type=image` 取 `thumb_media_id` → 新建走 `POST /cgi-bin/draft/add` 或原地更新走 `POST /cgi-bin/draft/update`。**绝不调用群发接口**。
-- `archive.py --article <md> [--url <link>] [--date YYYY-MM-DD] [--platform 公众号] [--account <alias>] [--archive-dir <dir>] [--move] [--force]`：保留原有 frontmatter 字段与顺序，更新 `tags`（`草稿`/`待审核` → `已发布`）、`status: 已发布`、`published_at`、`platform`、`url`（可选写 `wechat_account`）；传入 `--archive-dir` 时按 `<dir>/YYYY/MM/YYYY-MM-DD-<平台>-<标题>.md` 归档并自动重算相对图片链接（默认保留源草稿，传入 `--move` 时迁出）。
+- `archive.py --article <md> [--url <link>] [--date YYYY-MM-DD] [--platform 公众号] [--account <alias>] [--archive-dir <dir>] [--move] [--force]`：保留原有 frontmatter 字段与顺序，更新 `tags`（`草稿`/`待审核` → `已发布`）、`status: 已发布`、`published_at`、`platform`、`url`（可选写 `wechat_account`）；传入 `--archive-dir` 时按 `<dir>/YYYY/MM/YYYY-MM-DD-<平台>-<标题>.md` 归档。传入 `--move` 时，不仅迁出源草稿 `.md` 并清理同目录临时生成的 `<stem>.html`，还会将文章引用的同目录 `assets/<篇名>/` 本地配图一并迁入 `<dir>/YYYY/MM/assets/<篇名>/`，确保发布归档区独立自包含、草稿区只留未发布草稿。
 
 > 首次搭 <1 小时（规则 15 分 + AI 生成脚本 20 分 + Skill 文档 10 分），之后每篇排版 ≈ 0。
 

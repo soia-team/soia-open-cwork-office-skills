@@ -11,8 +11,11 @@ import argparse
 from datetime import date
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
+
+LOCAL_ASSET_ROOTS = ("assets", "_attachments", "attachments")
 
 
 def _update_inline_tags(value: str) -> str:
@@ -141,6 +144,53 @@ def _rebase_relative_links(text: str, src_dir: Path, dst_dir: Path) -> str:
     )
 
 
+def _collect_local_asset_rels(text: str) -> list[str]:
+    rels: list[str] = []
+    normalized = text.replace("\r\n", "\n")
+    fm_match = re.match(r"^(---\n)(.*?)(\n---\n?)", normalized, re.DOTALL)
+    if fm_match:
+        for line in fm_match.group(2).splitlines():
+            if line.startswith("cover:"):
+                _, val = line.split(":", 1)
+                raw_val = val.strip().strip('"').strip("'")
+                if raw_val and not raw_val.startswith(("http://", "https://", "data:", "/", "#")):
+                    rels.append(raw_val)
+    for m in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", normalized):
+        raw_val = m.group(1).strip()
+        if raw_val and not raw_val.startswith(("http://", "https://", "data:", "/", "#")):
+            rels.append(raw_val)
+    return rels
+
+
+def _prune_empty_dirs(start_dir: Path, stop_dir: Path) -> None:
+    cur = start_dir.resolve()
+    stop = stop_dir.resolve()
+    while cur != stop and stop in cur.parents:
+        try:
+            cur.rmdir()
+        except OSError:
+            break
+        cur = cur.parent
+
+
+def _migrate_local_assets_on_move(text: str, src_dir: Path, dst_dir: Path) -> None:
+    if src_dir.resolve() == dst_dir.resolve():
+        return
+    src_root = src_dir.resolve()
+    dst_root = dst_dir.resolve()
+    for rel in _collect_local_asset_rels(text):
+        rel_path = Path(rel)
+        if not rel_path.parts or rel_path.parts[0] not in LOCAL_ASSET_ROOTS:
+            continue
+        src_asset = (src_root / rel_path).resolve()
+        if src_root not in src_asset.parents or not src_asset.is_file():
+            continue
+        dst_asset = (dst_root / rel_path).resolve()
+        dst_asset.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src_asset), str(dst_asset))
+        _prune_empty_dirs(src_asset.parent, src_root)
+
+
 def compute_archive_path(src_path: Path, text: str, archive_dir: Path, pub_date: str, platform: str) -> Path:
     date_match = re.match(r"^(\d{4})-(\d{2})-\d{2}$", pub_date.strip())
     if not date_match:
@@ -181,12 +231,18 @@ def main() -> int:
             print(f"❌ 归档目标已存在（加 --force 可覆盖）：{dest_path}", file=sys.stderr)
             return 1
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        final_text = _rebase_relative_links(updated, path.parent, dest_path.parent)
-        dest_path.write_text(final_text, encoding="utf-8")
         if args.move and dest_path.resolve() != path:
+            _migrate_local_assets_on_move(updated, path.parent, dest_path.parent)
+            final_text = _rebase_relative_links(updated, path.parent, dest_path.parent)
+            dest_path.write_text(final_text, encoding="utf-8")
             path.unlink()
+            companion_html = path.with_suffix(".html")
+            if companion_html.is_file():
+                companion_html.unlink()
             print(f"✅ 已移动归档：{dest_path} → status: 已发布，published_at: {pub_date}，platform: {args.platform}")
         else:
+            final_text = _rebase_relative_links(updated, path.parent, dest_path.parent)
+            dest_path.write_text(final_text, encoding="utf-8")
             print(f"✅ 已复制归档：{dest_path} → status: 已发布，published_at: {pub_date}，platform: {args.platform}")
         return 0
 

@@ -404,6 +404,16 @@ class ArticleImageContractTest(unittest.TestCase):
         self.assertEqual(composer.suffix, ".svg")
         self.assertEqual(self.png_size(logo), (1024, 1024))
 
+    def test_wechat_official_cover_share_and_inline_specs_are_enforced(self) -> None:
+        input_contract = (SKILL / "references" / "input-contract.md").read_text(encoding="utf-8")
+        research_prompt = (SKILL / "references" / "prompt-editorial-research-minimal.md").read_text(encoding="utf-8")
+        quality_gates = (SKILL / "references" / "quality-gates.md").read_text(encoding="utf-8")
+        for token in ("wechat-cover", "wechat-share", "article-inline", "wechat-official", "1880×800", "800×800", "110px", "52px"):
+            self.assertIn(token, input_contract)
+        self.assertIn("120px", research_prompt)
+        self.assertIn("52px", quality_gates)
+        self.assertIn("800×800", quality_gates)
+
 
 if __name__ == "__main__":
     unittest.main()

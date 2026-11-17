@@ -646,6 +646,64 @@ class ArchiveTests(unittest.TestCase):
             text = article.read_text(encoding="utf-8")
             self.assertIn("wechat_draft_media_id: NEW_DRAFT_999", text)
 
+    def test_archive_move_migrates_local_assets_and_cleans_companion_html(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            draft_dir = root / "10_草稿" / "50_半山观心系列"
+            asset_dir = draft_dir / "assets" / "2026-11-16-半山行"
+            asset_dir.mkdir(parents=True)
+            (asset_dir / "cover.png").write_bytes(b"\x89PNG\r\n\x1a\nc")
+            (asset_dir / "fig.png").write_bytes(b"\x89PNG\r\n\x1a\nf")
+            draft = draft_dir / "2026-11-16-半山行.md"
+            companion_html = draft_dir / "2026-11-16-半山行.html"
+            companion_html.write_text("<section>temp</section>", encoding="utf-8")
+            draft.write_text(
+                "---\n"
+                "tags: [草稿, 半山观心]\n"
+                "title: 行至半山\n"
+                "status: 草稿\n"
+                "cover: assets/2026-11-16-半山行/cover.png\n"
+                "---\n\n"
+                "# 行至半山\n\n"
+                "![图注](assets/2026-11-16-半山行/fig.png)\n",
+                encoding="utf-8",
+            )
+            archive_root = root / "20_发布"
+            out_buf = io.StringIO()
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "archive.py",
+                    "--article",
+                    str(draft),
+                    "--url",
+                    "https://mp.weixin.qq.com/s/test",
+                    "--date",
+                    "2026-11-17",
+                    "--platform",
+                    "公众号",
+                    "--account",
+                    "zbt",
+                    "--archive-dir",
+                    str(archive_root),
+                    "--move",
+                ],
+            ):
+                with redirect_stdout(out_buf):
+                    rc = archive.main()
+            self.assertEqual(rc, 0)
+            dest = archive_root / "2026" / "11" / "2026-11-17-公众号-行至半山.md"
+            self.assertTrue(dest.is_file())
+            self.assertFalse(draft.exists())
+            self.assertFalse(companion_html.exists())
+            self.assertFalse((draft_dir / "assets").exists())
+            self.assertTrue((archive_root / "2026" / "11" / "assets" / "2026-11-16-半山行" / "cover.png").is_file())
+            self.assertTrue((archive_root / "2026" / "11" / "assets" / "2026-11-16-半山行" / "fig.png").is_file())
+            text = dest.read_text(encoding="utf-8")
+            self.assertIn("cover: assets/2026-11-16-半山行/cover.png", text)
+            self.assertIn("![图注](assets/2026-11-16-半山行/fig.png)", text)
+
 
 if __name__ == "__main__":
     unittest.main()
