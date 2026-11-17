@@ -3,6 +3,16 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.11.6 — 2026-11-17
+
+完善公众号封面/分享图/正文配图成套规格与字号门禁，增强 archive.py --move 静态资源连带迁移，新增 compose 微信原创去重门禁
+
+## 新增
+- feat(media-skills): complete wechat cover/share/inline image pack rules, archive --move asset migration, and compose originality gate (#92)
+
+## 维护
+- chore(release): open next train after v1.11.5 (#91)
+
 ## v1.11.5 — 2026-11-16
 
 为 publish.py 新增微信草稿箱 draft/update 原地覆盖更新与 media_id 持久化支持
