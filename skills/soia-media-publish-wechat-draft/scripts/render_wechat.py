@@ -402,6 +402,216 @@ def render(md_text, strip_h1=False, theme=None):
     return f'<section style="{wrapper_style}">\n{body_html}\n</section>\n'
 
 
+def build_copy_html(
+    wechat_html,
+    *,
+    title="",
+    author="",
+    digest="",
+    cover_src="",
+    x_cover_src="",
+    theme="default",
+):
+    """生成独立可打开的公众号一键复制与手机端双比例预览工作台（copy.html）。"""
+    safe_title = esc(title or "未命名公众号草稿")
+    safe_author = esc(author or "（未填作者）")
+    safe_digest = esc(digest or "（未填摘要）")
+    title_len = len(title or "")
+    digest_len = len(digest or "")
+
+    cover_block = ""
+    if cover_src:
+        safe_cover = esc_attr(cover_src)
+        cover_block = (
+            '<div class="cover-grid">'
+            '<div class="cover-card">'
+            '<div class="cover-label">公众号首图预览（2.35:1 · 900×383 / 1880×800，红框为中央 1:1 分享安全区）</div>'
+            '<div class="cover-banner-wrap">'
+            f'<img src="{safe_cover}" alt="公众号首图预览" class="cover-banner-img"/>'
+            '<div class="cover-safe-box" title="中央 1:1 分享卡片裁切安全区"><span>1:1 安全区</span></div>'
+            '</div>'
+            '</div>'
+            '<div class="cover-card cover-card-square">'
+            '<div class="cover-label">转发卡片 / 次条 1:1 裁切预览</div>'
+            '<div class="cover-square-wrap">'
+            f'<img src="{safe_cover}" alt="1:1 分享卡片预览" class="cover-square-img"/>'
+            '</div>'
+            '</div>'
+            '</div>'
+        )
+    else:
+        cover_block = '<div class="cover-empty">未指定公众号封面图（建议提供 900×383 或 1880×800 封面）</div>'
+
+    x_cover_block = ""
+    if x_cover_src:
+        safe_x_cover = esc_attr(x_cover_src)
+        x_cover_block = (
+            '<div class="cover-card" style="margin-top:12px">'
+            '<div class="cover-label">X Article 封面预览（5:2）</div>'
+            f'<div class="x-cover-wrap"><img src="{safe_x_cover}" alt="X 封面预览" class="cover-banner-img"/></div>'
+            '</div>'
+        )
+
+    escaped_source = esc(wechat_html)
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{safe_title} · 公众号排版预览与一键复制工作台</title>
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; padding: 24px 16px 48px; background: #f4f3ef; color: #222; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }}
+  .workbench {{ max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 1fr 420px; gap: 24px; align-items: start; }}
+  @media (max-width: 920px) {{ .workbench {{ grid-template-columns: 1fr; }} }}
+  .panel {{ background: #fff; border: 1px solid #e5e2dc; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }}
+  .toolbar {{ display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #eee; }}
+  .toolbar h1 {{ font-size: 18px; margin: 0; font-weight: 600; color: #1d1c1a; }}
+  .btn-group {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+  button, .link-btn {{ appearance: none; border: 1px solid #d0ccc4; background: #fff; color: #222; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }}
+  button.primary {{ background: #07c160; border-color: #07c160; color: #fff; font-weight: 600; }}
+  button.primary:hover {{ background: #06ad56; }}
+  button:hover, .link-btn:hover {{ background: #f8f7f4; }}
+  .status-toast {{ font-size: 13px; color: #07c160; font-weight: 600; min-height: 20px; margin-bottom: 8px; }}
+  .meta-list {{ display: grid; gap: 10px; margin-bottom: 18px; font-size: 13px; }}
+  .meta-row {{ display: grid; grid-template-columns: 72px 1fr auto; gap: 8px; align-items: center; background: #faf9f6; padding: 8px 12px; border-radius: 8px; border: 1px solid #eeeae2; }}
+  .meta-key {{ color: #666; font-weight: 500; }}
+  .meta-val {{ color: #111; word-break: break-all; }}
+  .meta-count {{ color: #888; font-size: 12px; margin-left: 6px; }}
+  .cover-grid {{ display: grid; grid-template-columns: 1fr 160px; gap: 12px; align-items: start; }}
+  .cover-card {{ background: #faf9f6; border: 1px solid #eeeae2; border-radius: 8px; padding: 10px; }}
+  .cover-label {{ font-size: 12px; color: #666; margin-bottom: 8px; }}
+  .cover-banner-wrap {{ position: relative; width: 100%; aspect-ratio: 2.35 / 1; overflow: hidden; border-radius: 6px; background: #e9e5dc; }}
+  .cover-banner-img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
+  .cover-safe-box {{ position: absolute; top: 0; bottom: 0; left: 50%; width: 42.553%; transform: translateX(-50%); border: 2px dashed rgba(200, 60, 35, 0.85); background: rgba(200, 60, 35, 0.04); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px; pointer-events: none; }}
+  .cover-safe-box span {{ background: rgba(200, 60, 35, 0.85); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 4px; }}
+  .cover-square-wrap {{ width: 100%; aspect-ratio: 1 / 1; overflow: hidden; border-radius: 6px; background: #e9e5dc; }}
+  .cover-square-img {{ width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }}
+  .x-cover-wrap {{ width: 100%; aspect-ratio: 5 / 2; overflow: hidden; border-radius: 6px; background: #e9e5dc; }}
+  .cover-empty {{ padding: 12px; border-radius: 8px; background: #fff8eb; border: 1px solid #f0dc99; color: #8a6d1b; font-size: 13px; }}
+  .checklist {{ margin-top: 18px; padding-top: 14px; border-top: 1px solid #eee; font-size: 13px; }}
+  .checklist h2 {{ font-size: 14px; margin: 0 0 10px; color: #222; }}
+  .checklist label {{ display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; color: #444; cursor: pointer; }}
+  .phone-frame {{ background: #fff; border: 10px solid #222; border-radius: 32px; max-width: 395px; margin: 0 auto; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }}
+  .phone-statusbar {{ background: #f7f7f7; padding: 8px 16px; font-size: 12px; color: #666; text-align: center; border-bottom: 1px solid #eee; font-weight: 500; }}
+  .phone-body {{ padding: 18px 14px 28px; max-height: 780px; overflow-y: auto; background: #fff; }}
+  details.source-box {{ margin-top: 16px; }}
+  details.source-box summary {{ cursor: pointer; font-size: 13px; color: #555; font-weight: 500; }}
+  textarea#html-source {{ width: 100%; height: 180px; margin-top: 8px; font-family: Menlo, Monaco, Consolas, monospace; font-size: 12px; padding: 10px; border-radius: 8px; border: 1px solid #ddd; }}
+</style>
+</head>
+<body>
+<div class="workbench">
+  <div class="panel">
+    <div class="toolbar">
+      <h1>公众号排版预览与一键复制工作台（theme: {esc(theme)}）</h1>
+      <div class="btn-group">
+        <button type="button" class="primary" id="btn-copy-rich" onclick="copyRichText()">复制公众号富文本</button>
+        <button type="button" id="btn-copy-source" onclick="copyHtmlSource()">复制 HTML 源码</button>
+        <a class="link-btn" href="https://mp.weixin.qq.com" target="_blank" rel="noopener noreferrer">打开公众号后台 ↗</a>
+      </div>
+    </div>
+    <div id="toast" class="status-toast" role="status" aria-live="polite"></div>
+
+    <div class="meta-list">
+      <div class="meta-row">
+        <span class="meta-key">文章标题</span>
+        <span class="meta-val" id="val-title">{safe_title}<span class="meta-count">（{title_len} 字）</span></span>
+        <button type="button" onclick="copyTextValue('val-title', { repr(title or '') })">复制标题</button>
+      </div>
+      <div class="meta-row">
+        <span class="meta-key">作者署名</span>
+        <span class="meta-val" id="val-author">{safe_author}</span>
+        <button type="button" onclick="copyTextValue('val-author', { repr(author or '') })">复制作者</button>
+      </div>
+      <div class="meta-row">
+        <span class="meta-key">摘要 digest</span>
+        <span class="meta-val" id="val-digest">{safe_digest}<span class="meta-count">（{digest_len} 字，建议 20–40 字）</span></span>
+        <button type="button" onclick="copyTextValue('val-digest', { repr(digest or '') })">复制摘要</button>
+      </div>
+    </div>
+
+    {cover_block}
+    {x_cover_block}
+
+    <div class="checklist">
+      <h2>发布前 7 项预览检查（只建草稿，人工核对后再群发）</h2>
+      <label><input type="checkbox"/> 1. 封面图：手机端缩略图清晰，中央 1:1 红色虚线安全区内主标题/主体完整无裁断</label>
+      <label><input type="checkbox"/> 2. 标题与作者：无错别字，未擅改作者原意，赞赏署名一致</label>
+      <label><input type="checkbox"/> 3. 摘要（digest）：转发卡片展示自然凝练（20–40 字），未直接渲染进正文开头</label>
+      <label><input type="checkbox"/> 4. 正文配图：仅保留必要的流程图/预览图/意境分隔图，路径与显示正常</label>
+      <label><input type="checkbox"/> 5. 手机端排版：右侧 390px 手机视口内段落呼吸感舒适，加粗与引用克制</label>
+      <label><input type="checkbox"/> 6. 链接与双链：外链可正常打开，Obsidian [[双链]] 已转为纯文本</label>
+      <label><input type="checkbox"/> 7. 结尾口吻：保持作者本人文风，无多余 AI 总结套话</label>
+    </div>
+
+    <details class="source-box">
+      <summary>查看 / 手动复制内联样式 HTML 源码</summary>
+      <textarea id="html-source" readonly>{escaped_source}</textarea>
+    </details>
+  </div>
+
+  <div>
+    <div class="phone-frame">
+      <div class="phone-statusbar">微信公众号 · 390px 手机端预览</div>
+      <div class="phone-body" id="wechat-rich-content">
+{wechat_html}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showToast(msg) {{
+  var el = document.getElementById('toast');
+  if (el) {{ el.textContent = msg; }}
+}}
+function copyTextValue(id, rawText) {{
+  if (!rawText) {{ showToast('⚠️ 当前字段为空'); return; }}
+  navigator.clipboard.writeText(rawText).then(function() {{
+    showToast('✅ 已复制：' + rawText.slice(0, 28));
+  }});
+}}
+function copyHtmlSource() {{
+  var src = document.getElementById('html-source').value;
+  navigator.clipboard.writeText(src).then(function() {{
+    showToast('✅ 已复制 HTML 源码（' + src.length + ' 字符）');
+  }});
+}}
+function copyRichText() {{
+  var node = document.getElementById('wechat-rich-content');
+  var html = document.getElementById('html-source').value;
+  var plain = node ? node.innerText : '';
+  if (navigator.clipboard && window.ClipboardItem) {{
+    var item = new ClipboardItem({{
+      'text/html': new Blob([html], {{ type: 'text/html' }}),
+      'text/plain': new Blob([plain], {{ type: 'text/plain' }})
+    }});
+    navigator.clipboard.write([item]).then(function() {{
+      showToast('✅ 已复制公众号富文本！可直接到公众号后台「图文消息」正文区按 Cmd+V / Ctrl+V 粘贴');
+    }}).catch(function() {{
+      fallbackCopyNode(node);
+    }});
+  }} else {{
+    fallbackCopyNode(node);
+  }}
+}}
+function fallbackCopyNode(node) {{
+  var range = document.createRange();
+  range.selectNodeContents(node);
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  document.execCommand('copy');
+  sel.removeAllRanges();
+  showToast('✅ 已复制公众号富文本（兼容模式）！可直接粘贴到公众号后台');
+}}
+</script>
+</body>
+</html>
+"""
+
+
 def parse_args():
     ap = argparse.ArgumentParser(
         description="Markdown → 微信公众号安全 HTML（遵守微信平台红线，渲染后请接 validate_wechat_html.py 校验）",
@@ -409,6 +619,9 @@ def parse_args():
     )
     ap.add_argument("--file", help="输入 Markdown 文件路径；不传则从 stdin 读取")
     ap.add_argument("--output", help="输出 HTML 文件路径；不传则打印到 stdout")
+    ap.add_argument("--copy-html", help="可选：同时输出一键复制与手机端预览工作台页面（如 copy.html 或 <stem>.copy.html）")
+    ap.add_argument("--cover", help="可选：用于 copy.html 预览的公众号首图路径（默认读取 frontmatter cover）")
+    ap.add_argument("--x-cover", help="可选：用于 copy.html 预览的 X 封面图路径（默认读取 frontmatter x_cover）")
     ap.add_argument("--strip-h1", action="store_true", help="剥离正文开头的首个 # 一级标题（推草稿箱时标题由元数据承载）")
     ap.add_argument("--theme", choices=sorted(THEMES), help="排版主题：default（默认红黑强调）或 minimal（克制纯墨随笔）")
     return ap.parse_args()
@@ -428,6 +641,29 @@ def main():
         print(f"✅ 渲染完成：{args.output}（{len(out_html)} 字节）", file=sys.stderr)
     else:
         print(out_html, end="")
+
+    if args.copy_html:
+        fm, body = parse_frontmatter(md_text)
+        m_h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+        title = fm.get("title") or (m_h1.group(1).strip() if m_h1 else "")
+        author = fm.get("author") or ""
+        digest = fm.get("digest") or fm.get("summary") or (str(fm.get("preface") or "").strip()[:120])
+        cover_src = args.cover or fm.get("cover") or ""
+        x_cover_src = args.x_cover or fm.get("x_cover") or ""
+        resolved_theme = (args.theme or fm.get("wechat_theme") or fm.get("theme") or "default").strip().lower()
+        copy_doc = build_copy_html(
+            out_html,
+            title=title,
+            author=author,
+            digest=digest,
+            cover_src=cover_src,
+            x_cover_src=x_cover_src,
+            theme=resolved_theme,
+        )
+        copy_path = Path(args.copy_html)
+        copy_path.parent.mkdir(parents=True, exist_ok=True)
+        copy_path.write_text(copy_doc, encoding="utf-8")
+        print(f"✅ 一键复制工作台已生成：{args.copy_html}", file=sys.stderr)
 
 
 if __name__ == "__main__":

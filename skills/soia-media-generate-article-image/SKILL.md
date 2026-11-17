@@ -1,9 +1,9 @@
 ---
 name: soia-media-generate-article-image
 description: 将文章、开源项目、品牌 Logo 或公开 X Prompt Deck 编译为可验收的图片与矢量资产，按组合轴生成 Prompt 并完成事实、文字和视觉验收。
-version: 3.17.6
+version: 3.18.0
 created_at: 2026-07-09 20:56:44
-updated_at: 2026-11-17 10:08:00
+updated_at: 2026-11-17 11:40:00
 created_by: claude opus 4.6
 updated_by: gemini-4-hydrogen
 ---
@@ -16,7 +16,7 @@ updated_by: gemini-4-hydrogen
 
 ### 这个技能可以做什么
 
-支持六类交付：文章封面/小结卡、康奈尔笔记、视觉隐喻海报、技能库宣传单图/轮播、插件图标、品牌 Logo 系统。客户只需提供来源、用途、平台、比例和必须逐字出现的文字；有参考图时说明它是风格参考、构图参考还是编辑目标。
+支持六类交付：文章封面/小结卡（含微信公众号 `2.35:1` 首图与中央 `1:1` 分享安全区、`5:2` X 封面、正文三类配图克制规划、30–45 秒一图读懂手机海报 ≤220 字）、康奈尔笔记、视觉隐喻海报、技能库宣传单图/轮播、插件图标、品牌 Logo 系统；内置中国传统构图 20 式（平远/一河两岸/边角/折枝/计白当黑等）与 742 种中华传统色色盘。客户只需提供来源、用途、平台、比例和必须逐字出现的文字；有参考图时说明它是风格参考、构图参考还是编辑目标。
 
 ### 客户如何使用
 
@@ -89,7 +89,7 @@ python3 scripts/resolve_prompt_composition.py --list-supported
 
 ## 路由索引
 
-- 普通文章图：读取 [输入契约](references/input-contract.md)、[模板注册表](references/template-registry.yml) 和 [组合索引](references/prompt-composition-index.yml)；微信公众号成套配图（`wechat-cover` `2.35:1` 头图、`wechat-share` `1:1` 分享方图、`article-inline` `16:9`/`3:2` 正文配图及字号/垂直重心门禁）按 [输入契约](references/input-contract.md) 与 [研究编辑极简模板](references/prompt-editorial-research-minimal.md) 执行。
+- 普通文章图：读取 [输入契约](references/input-contract.md)、[模板注册表](references/template-registry.yml) 和 [组合索引](references/prompt-composition-index.yml)；微信公众号成套配图（`wechat-cover` `2.35:1` 头图、`wechat-share` `1:1` 分享方图、`x-cover` `5:2`、`article-inline` 正文三类配图克制法则）、[中国传统构图 20 式](references/prompt-visual-mechanism-chinese-composition.md)、[中华传统色](references/prompt-aesthetic-chinese-traditional-colors.md) 及 [30–45 秒手机海报压缩（≤220 字）](references/prompt-structure-mobile-poster-compression.md) 按 [输入契约](references/input-contract.md) 与 [研究编辑极简模板](references/prompt-editorial-research-minimal.md) 执行。
 - 研究封面/小结：`editorial_research_minimal`；正文小结：`editorial_summary_card`；康奈尔笔记：`cornell_notes`（长文使用 `adaptive_series`，最多 6 页）。
 - 交付选择支持 `social_card | carousel | icon | logo`；社交图使用 `social_skill_catalog`，插件图标使用 `plugin_icon`，品牌 Logo 使用 `brand_logo`。朋友圈单图或小红书轮播的事实和两阶段规则见 [社交卡契约](references/social-card-contract.yml)。
 - 研究封面使用 `editorial_research_minimal`；插件图标和品牌 Logo 的 imagegen 只给方向稿，终稿必须确定性矢量重绘。品牌 Logo 额外读取 [Logo 系统 Prompt](references/prompt-brand-logo.md)。

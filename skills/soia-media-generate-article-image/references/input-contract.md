@@ -10,10 +10,10 @@ image_type: <cover | summary_card | learning_note | poster | social_card | carou
 preset: <godot_pixel_metaphor | editorial_summary_card | editorial_research_minimal | cornell_notes | social_skill_catalog | plugin_icon | brand_logo | auto>
 family: <auto | morning_city | poster_type_stage | presentation_grid | travel_publication | portrait_identity | event_people | celebration_ceremony | hospitality_food | archival_print | pixel_play | brand_identity>
 use_case: <auto | good_morning | presentation | repository_recommendation | featured_skill | event_poster | birthday_poster | hospitality_poster | brand_identity>
-information_structure: <auto | single_hook | knowledge_card | deck_page | deck_series | carousel_sequence | portrait_brief | campaign_pack | logo_system>
+information_structure: <auto | single_hook | knowledge_card | mobile_poster_compression | deck_page | deck_series | carousel_sequence | portrait_brief | campaign_pack | logo_system>
 asset_role: <auto | none | reference_subject | identity_reference | brand_asset | proof_screenshot | foreground_subject>
-visual_mechanism: <auto | typographic_mask | oversized_type | oversized_type_whitespace | color_field_stage | modular_grid | travel_editorial_narrative | pixel_dissolution | geometric_mark>
-aesthetic_system: <auto | editorial_aesthetic | bright_modern | archival_historical | travel_publication | portrait_editorial | ceremonial_soft | hospitality_premium | playful_pixel | brand_system>
+visual_mechanism: <auto | typographic_mask | oversized_type | oversized_type_whitespace | chinese_traditional_composition | color_field_stage | modular_grid | travel_editorial_narrative | pixel_dissolution | geometric_mark>
+aesthetic_system: <auto | editorial_aesthetic | chinese_traditional_colors | bright_modern | archival_historical | travel_publication | portrait_editorial | ceremonial_soft | hospitality_premium | playful_pixel | brand_system>
 text_strategy: <auto | exact_text | cjk_exact_text | hero_typography | quote_led | latin_hero_type | logo_wordmark>
 model_adapter: <auto | builtin_imagegen | external_gpt_image_label | text_orchestrator_only | text_orchestrator_or_provider_dependent>
 batch_strategy: <single | series | auto>
@@ -77,16 +77,16 @@ brand_logo:
 | `article-inline`（公众号 / 长文正文配图） | **16:9**（`1376×768`）或 **3:2**（`1264×848`） | 随正文宽度排版，每篇建议 1–3 张，配合章节呼吸感，避免竖图过高打断阅读 |
 | `rednote`（小红书） | **3:4** | 小红书信息流允许的最高竖版比例，占屏最多；4:5 会白白让出高度。2026-08-06 实发验证 2160×2880 正常展示 |
 | `wechat-moments`（朋友圈海报） | 4:5 | 朋友圈按方形裁切预览，4:5 更耐裁 |
-| `x-cover` | 16:9 | |
+| `x-cover` | **5:2** 或 16:9 | X Article 封面推荐 `5:2`（如 `1500×600`），可与公众号 `2.35:1` 首图同母题派生 |
 
 ## 微信公众号成套配图规范（封面 + 分享方图 + 正文配图）
 
-当客户要求为公众号文章配图（同时含封面、分享图与正文插图）时，按同一视觉系统成套产出：
+当客户要求为公众号文章配图（同时含封面、分享图与正文插图）时，按同一视觉系统成套产出，并可叠加 [中国传统构图 20 式](prompt-visual-mechanism-chinese-composition.md)、[中华传统色](prompt-aesthetic-chinese-traditional-colors.md) 与 [30–45 秒手机海报压缩规范](prompt-structure-mobile-poster-compression.md)：
 
-1. **三类资产协同**：
-   - `01-wechat-cover-<slug>.png`（`2.35:1` / `1880×800`）：头条大封面，核心标题与视觉主体必须落在正中央 `800×800`（`1:1`）安全区内；
-   - `wechat-share`（`1:1` / `800×800`）：每次生成 `2.35:1` 封面后必须执行 `sips --cropToHeightWidth 800 800` 复核中央 `1:1` 分享裁切效果（客户需要独立分享图时直接一并交付）；
-   - `02..0N-inline-<slug>.png`（`16:9` `1376×768` 或 `3:2` `1264×848`）：按文章章节转折点配置 1–2 张同色系意境图或核心守则小结图。
+1. **三类资产协同与正文三图克制法则**：
+   - `01-wechat-cover-<slug>.png`（`2.35:1` / 标准 `900×383` 或 2x 高清 `1880×800`）：头条大封面，核心标题与视觉主体必须落在正中央 `1:1`（`383×383` / `800×800`）安全区内；按内容类型路由风格（AI 工具→干净科技感；工作流→桌面/流程结构感；强观点→杂志大字留白；个人经验/人文随笔→宣纸留白或 `平远法`/`边角式` 传统构图 + 中华传统色）；
+   - `wechat-share`（`1:1` / `800×800`）：每次生成 `2.35:1` 封面后必须执行 `sips --cropToHeightWidth 800 800` 复核中央 `1:1` 分享裁切效果（客户需要独立分享图时直接一并交付）；可选联动生成 `5:2` 的 `x-cover.png`；
+   - `02..0N-inline-<slug>.png`（`16:9` `1376×768` 或 `3:2` `1264×848`）：**不要每小节都配图**，全篇控制在 1–3 张，只保留三类图——**① 流程图/结构图（解释步骤）**、**② 真实截图/结果预览图（证明真实操作）**、**③ 意境分隔图（缓解长文疲劳，如一河两岸式/折枝式）**，并在回执中给出每张图的插入位置。
 2. **字号下限与垂直重心（实测防小字/防贴顶硬门禁）**：
    - **封面（`1880×800`）**：有字封面的主标题字号须 **≥ `110px`–`128px`**（推荐两行居中或紧凑单行），副标题/合集标识须 **≥ `52px`–`60px`**（严禁 `≤36px` 细小副标，否则微信草稿箱与订阅号缩略图无法辨认）；文字组顶部边距 `padding-top` 控制在 **`120px`–`150px`**，避免贴顶（`<80px`）或与下方远山/主体脱节。
    - **正文配图（`1376×768` / `1264×848`）**：主金句/大标题须 **≥ `88px`–`104px`**，眉题/副标 **≥ `34px`–`40px`**，正文条款/落款 **≥ `26px`–`32px`**（禁止 `<24px` 的细小文字和 `>60%` 无信息空旷白纸死区）。

@@ -43,6 +43,10 @@ information_structures:
     reference: prompt-structure-knowledge-card.md
     compile_fields: [primary_claim, knowledge_points_3_to_5, evidence_or_examples, source_label]
     acceptance: [each_region_adds_new_information, hierarchy_is_obvious, no_fabricated_facts]
+  mobile_poster_compression:
+    reference: prompt-structure-mobile-poster-compression.md
+    compile_fields: [poster_archetype, cognition_flow_5_steps, mobile_text_budget, inline_figure_role_and_anchor]
+    acceptance: [readable_in_30_to_45_seconds, no_wall_of_small_text, no_html_or_watermark_noise]
   deck_page:
     reference: prompt-structure-deck-page.md
     compile_fields: [page_role, title, focal_visual, body_points_3_to_5, footer_baseline]
@@ -103,6 +107,10 @@ visual_mechanisms:
     reference: prompt-visual-mechanism-oversized-type.md
     compile_fields: [short_title, title_scale, whitespace_boundary, one_controlled_image_zone]
     acceptance: [title_is_first_read, no_information_wall, margins_safe]
+  chinese_traditional_composition:
+    reference: prompt-visual-mechanism-chinese-composition.md
+    compile_fields: [composition_schema, three_layer_depth, whitespace_and_title_zone, seal_and_calligraphy_anchor]
+    acceptance: [composition_matches_schema, title_in_safe_blank_zone, breathing_room_balanced]
   color_field_stage:
     reference: prompt-visual-mechanism-color-field-stage.md
     compile_fields: [field_color, field_area_ratio, subject_layer, title_block_position]
@@ -157,6 +165,10 @@ aesthetic_systems:
     reference: prompt-aesthetic-editorial-system.md
     compile_fields: [background_role, image_role, theme_color, structure_color, material, type_contrast]
     acceptance: [low_saturation_order, readable_type, theme_has_color_roles]
+  chinese_traditional_colors:
+    reference: prompt-aesthetic-chinese-traditional-colors.md
+    compile_fields: [paper_base_color, ink_five_tones, mineral_theme_color, vermilion_accent, calligraphy_and_paper_texture]
+    acceptance: [traditional_palette_harmony, ink_hierarchy_clear, no_parameter_text_leak]
   bright_modern:
     reference: prompt-aesthetic-bright-modern-system.md
     compile_fields: [background_value, accent_color, support_color, structure_color, contrast_order]

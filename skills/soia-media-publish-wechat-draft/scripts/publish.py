@@ -15,6 +15,7 @@ import argparse
 import html as html_mod
 import json
 import mimetypes
+import os
 import re
 import subprocess
 import sys
@@ -322,12 +323,14 @@ def extract_article_meta(md_text: str, md_path: Path, args: argparse.Namespace) 
     author = (args.author or fm.get("author") or account_author).strip()
     theme = (getattr(args, "theme", None) or fm.get("wechat_theme") or fm.get("theme") or "default").strip().lower()
     draft_media_id = (getattr(args, "draft_media_id", None) or fm.get("wechat_draft_media_id") or "").strip()
+    x_cover = (getattr(args, "x_cover", None) or fm.get("x_cover") or "").strip()
     return {
         "title": title,
         "author": author,
         "digest": digest,
         "account": account,
         "cover": cover,
+        "x_cover": x_cover,
         "theme": theme,
         "draft_media_id": draft_media_id,
     }
@@ -398,6 +401,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--renderer", default="wechat", choices=["wechat", "legacy"], help="渲染器，默认 wechat")
     ap.add_argument("--theme", choices=["default", "minimal"], help="wechat 渲染排版主题：default（默认红黑强调）或 minimal（克制纯墨）")
     ap.add_argument("--html-out", help="指定渲染 HTML 输出路径（默认在源 Markdown 同目录生成同名 .html）")
+    ap.add_argument("--copy-html", help="指定一键复制与手机预览工作台输出路径（默认生成 <stem>.copy.html）")
+    ap.add_argument("--no-copy-html", action="store_true", help="不生成 .copy.html 一键复制工作台")
+    ap.add_argument("--x-cover", help="可选：在 copy.html 中一并预览的 X 封面图路径（5:2）")
     ap.add_argument("--keep-h1", action="store_true", help="保留正文开头首个 # 一级标题")
     ap.add_argument("--draft-media-id", help="原地更新指定微信草稿的 media_id（默认读取 frontmatter wechat_draft_media_id；均空时调 draft/add 新建）")
     ap.add_argument("--draft-index", type=int, default=0, help="调用 draft/update 更新多图文时要覆盖的文章索引，默认 0（首篇）")
@@ -480,17 +486,45 @@ def main() -> int:
             print(f"❌ 找不到封面图片：{cover_path}", file=sys.stderr)
             return 1
 
+    copy_html_path: Path | None = None
+    if not getattr(args, "no_copy_html", False):
+        copy_html_path = (
+            Path(args.copy_html).expanduser().resolve()
+            if getattr(args, "copy_html", None)
+            else html_path.with_suffix(".copy.html")
+        )
+        cover_rel = ""
+        if cover_path is not None:
+            try:
+                cover_rel = os.path.relpath(cover_path, copy_html_path.parent)
+            except ValueError:
+                cover_rel = str(cover_path)
+        elif meta["cover"]:
+            cover_rel = meta["cover"]
+        copy_doc = render_wechat.build_copy_html(
+            html_text,
+            title=meta["title"],
+            author=meta["author"],
+            digest=meta["digest"],
+            cover_src=cover_rel,
+            x_cover_src=meta.get("x_cover", ""),
+            theme=meta["theme"],
+        )
+        copy_html_path.parent.mkdir(parents=True, exist_ok=True)
+        copy_html_path.write_text(copy_doc, encoding="utf-8")
+
     if args.dry_run:
         account_label = meta["account"] or "(未指定，推送时按配置解析)"
         author_part = f" | 作者={meta['author']}" if meta["author"] else ""
         theme_part = f" | 主题={meta['theme']}" if meta["theme"] != "default" else ""
         draft_part = f" | 原地更新草稿={meta['draft_media_id']}" if meta["draft_media_id"] else " | 模式=新建草稿"
-        print(f"[dry-run] 渲染并校验通过：{html_path}")
+        copy_part = f" | 一键复制工作台={copy_html_path}" if copy_html_path else ""
+        print(f"[dry-run] 渲染并校验通过：{html_path}{copy_part}")
         print(
             f"[dry-run] 标题={meta['title']!r}{author_part}{theme_part}{draft_part} | 账号={account_label} | "
             f"本地正文图={len(local_images)} 张 | 封面={cover_path or '未指定'}"
         )
-        print("[dry-run] 未推送远端。确认参数与封面后去掉 --dry-run 即可建草稿。")
+        print("[dry-run] 未推送远端。可打开 .copy.html 预览或一键复制富文本；确认参数与封面后去掉 --dry-run 即可建草稿。")
         return 0
 
     if cover_path is None:

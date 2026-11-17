@@ -14,7 +14,7 @@
   <img alt="plugin version" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsoia-team%2Fsoia-open-cwork-office-skills%2Fmain%2F.claude-plugin%2Fplugin.json&query=%24.version&label=plugin&color=F5A623&prefix=v">
   <img alt="skills" src="https://img.shields.io/badge/skills-7-brightgreen">
   <img alt="hosts" src="https://img.shields.io/badge/hosts-Claude%20%C2%B7%20Codex%20%C2%B7%20WorkBuddy-8A2BE2">
-  <img alt="always-on cost" src="https://img.shields.io/badge/always--on-~1037%20tok-lightgrey">
+  <img alt="always-on cost" src="https://img.shields.io/badge/always--on-~680%20tok-lightgrey">
   <img alt="license" src="https://img.shields.io/github/license/soia-team/soia-open-cwork-office-skills?color=blue">
 </p>
 
@@ -68,14 +68,14 @@ flowchart LR
 
 | Skill | Responsibility | Ready |
 |---|---|:-:|
-| [`soia-media-compose-article-draft`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-compose-article-draft.md) | Writes a full draft with your opinion as the spine and vault excerpts as material; WeChat / Zhihu / essay styles | ✅ |
-| [`soia-media-generate-article-image`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-generate-article-image.md) | Covers, summary cards, Cornell-notes images and metaphor posters, with prompt provenance and bitmap acceptance | 🟡 |
+| [`soia-media-compose-article-draft`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-compose-article-draft.md) | Writes a full draft with your opinion as the spine and vault excerpts as material; WeChat / Zhihu / essay styles, separate `digest` vs `preface`, pre-publish proofreading, and a `6-gram` originality check | ✅ |
+| [`soia-media-generate-article-image`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-generate-article-image.md) | WeChat `2.35:1` covers (with central `1:1` share crop zone) and `5:2` X covers, 3-type inline figures, 30–45s mobile summary posters (≤220 CJK chars), Cornell notes and brand logos, with 20 Chinese traditional compositions and 742 Chinese traditional colors | 🟡 |
 
 ### 04 Adaptation and drafts　`One draft → publish-ready on three platforms`
 
 | Skill | Responsibility | Ready |
 |---|---|:-:|
-| [`soia-media-publish-wechat-draft`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-publish-wechat-draft.md) | Formats to WeChat-compliant inline-style HTML, mechanically validated before entering the draft box | 🟡 |
+| [`soia-media-publish-wechat-draft`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-publish-wechat-draft.md) | Preserves authored body copy by default, renders WeChat-compliant inline-style HTML, generates a `.copy.html` one-click rich-text and 390px mobile dual-ratio preview workbench, supports multi-account `draft/add` and in-place `draft/update`, and archives published posts with local assets | 🟡 |
 | [`soia-media-publish-rednote-card`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-publish-rednote-card.md) | Rewrites into a Rednote note: catchy title, 3–5 short paragraphs, topic tags, image suggestions | ✅ |
 | [`soia-media-publish-x`](https://github.com/soia-team/soia-open-skills/blob/main/docs/skills/soia-media-publish-x.md) | Rewrites into a numbered, length-compliant X thread and saves a draft when authorized; or uploads a Markdown piece to the X Articles draft box and validates the format | 🟡 |
 
@@ -103,7 +103,7 @@ python3 <soia-open-skills>/skills/soia-meta-skill-release/scripts/install_workbu
 
 Restart the client, then summon **Soia · 办公与内容助手** under Experts → My Experts.
 
-> **Always-on cost ~1037 tok**. `claude plugin disable soia-cwork-office@soia` drops it to zero; enable it again any time.
+> **Always-on cost ~680 tok**. `claude plugin disable soia-cwork-office@soia` drops it to zero; enable it again any time.
 > Single skill, project scope: `npx skills add soia-team/soia-open-cwork-office-skills -a <explicit-host> -s <skill-name>`; add `-g` only when you explicitly choose a global install. Pick this or the domain plugin, not both, so the index is not duplicated.
 
 ## What it does not do
