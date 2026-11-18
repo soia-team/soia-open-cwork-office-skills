@@ -1,36 +1,16 @@
 ---
 name: soia-cwork-feishu-cli
 description: 用飞书官方 lark-cli 以最小权限只读调研 Wiki、Drive 与文档，或把知识库只读同步为本地 Markdown。触发：「调研飞书知识库」「读取飞书云盘」「配置飞书 CLI」「同步飞书知识库」「飞书备份到 Git」「规划双向同步」
-version: 1.1.0
+version: 1.1.1
 created_at: 2026-07-14 15:26:13
-updated_at: 2026-11-11 18:30:00
+updated_at: 2026-11-18 10:00:00
 created_by: claude opus 4.6
-updated_by: claude-fable-5-2
+updated_by: gemini-4-hydrogen
 ---
 
 # soia-cwork-feishu-cli
 
-使用飞书官方 `lark-cli` 连接用户明确授权的飞书应用，按“知识库/Wiki”和“云盘/Drive”分开执行只读盘点、搜索和文档分析。默认使用应用身份 bot；只有用户明确要求访问个人云盘、个人知识库或私有资源时，才走用户 OAuth。默认不修改飞书远端内容；写入、移动、删除、权限变更、发送消息和导出个人数据都必须单独确认。
-
-本技能有两类活：**只读调研**（下文各节）和**知识库同步到本地 Markdown / Git**（见「知识库同步到本地」一节，原独立技能 `soia-cwork-feishu-doc-git-sync` 已并入本技能）。只做调研时不必读同步部分。
-
-## 场景分流：知识库与云盘不能混用
-
-| 场景 | 默认身份 | 主要对象 | 用户 OAuth 何时使用 | 详细规则 |
-|---|---|---|---|---|
-| 知识库 / Wiki | bot | 知识空间、Wiki 节点、Wiki 文档 | 用户明确要求个人知识库或 bot 不可见的私有知识库 | [wiki-workflow.md](references/wiki-workflow.md) |
-| 云盘 / Drive | bot | 共享文件夹、应用可见文档、文件元数据 | 用户明确要求“我的云盘 / 我的文件夹 / 个人文档” | [drive-workflow.md](references/drive-workflow.md) |
-
-不要把 Wiki 的空间/节点接口当作云盘目录，也不要把 bot 的空搜索结果解释为用户个人云盘为空。
-
-## 两种权限类型：是否需要同时申请
-
-飞书对同一个 API 能力按调用身份分别管理权限：
-
-- **应用身份权限**：`tenant_access_token`，运行时是 `bot`。在“应用身份权限”页签申请；还要配置应用数据权限、可用范围或把应用加入目标知识库/文件夹。
-- **用户身份权限**：`user_access_token`，运行时是 `user`。在“用户身份权限”页签申请；再由用户执行 `lark-cli auth login` 完成 OAuth，访问范围跟随登录用户。
-
-如果目标是“Bot 读取企业知识库 + 用户 OAuth 读取个人云盘”，需要在两个页签分别申请对应的最小只读 scope。只使用其中一种身份时，不要重复申请另一种权限。具体清单以 [permissions.yml](references/permissions.yml) 的 `identity_modes` 为准。
+通过飞书官方 `lark-cli` 执行最小权限**只读调研**，或将授权知识库**单向同步为本地 Markdown / Git / VitePress / Obsidian**。默认以应用身份 `bot`（`tenant_access_token`）只读运行；不猜测个人资源、不修改远端内容。
 
 ## 客户可读说明
 
@@ -38,282 +18,67 @@ updated_by: claude-fable-5-2
 
 | 客户想要 | 技能会做 | 客户能看到 |
 |---|---|---|
-| 调研飞书云盘和知识库使用情况 | 检查应用身份、可见空间、节点树、文档类型、文件与权限元数据 | 结构化盘点、已访问范围、不可见范围和证据命令 |
-| 读取、总结或比较飞书文档 | 先识别 URL 类型，再按 `lark-doc` 规则读取正文和大纲 | 文档摘要、引用位置、格式和权限限制 |
-| 搜索飞书知识库、文档和云盘 | 使用 Drive Search 或 Wiki 节点查询，不猜 token 和参数 | 命中文档、标题、类型、空间和下一步读取范围 |
-| 安装或修复飞书 CLI | 安装官方 CLI，配置应用凭证，检查 token、身份、scope 和连通性 | 命令输出摘要；绝不打印 App Secret 或 access token |
-| 同步飞书知识库到本地、备份到 Git、在本地查看 | 以应用身份只读镜像为 Markdown，保留目录、来源和同步元数据，可接入 Git、Obsidian、VitePress | 本地镜像目录、同步清单、失败清单与验收结果 |
+| 调研飞书 Wiki 与云盘结构 | 分离 Wiki 与 Drive 接口，按 bot（或授权后 user）盘点空间、节点、文档类型与权限 | 结构化盘点、已访问范围、bot 不可见缺口与证据命令 |
+| 读取、总结或评估迁移飞书文档 | 识别 URL 类型并按 `lark-doc` 规则读取正文与大纲 | 文档摘要、引用位置与迁移限制 |
+| 初始化与诊断 `lark-cli` 凭证 | 用 stdin 安全写入应用 profile，校验身份、token、scope 与错误码 | 脱敏连通性状态与最小需开 scope/发布指南 |
+| 同步飞书知识库到本地 / Git | 以 bot 只读增量镜像为 Markdown，保留层级、来源与同步元数据 | 镜像目录、同步清单、失败清单与验收结果 |
 
 ### 客户如何使用
 
-可以直接说：
-
-- “用飞书 CLI 盘点我可见的知识库层级和云盘文档类型。”
-- “读取这个飞书 Wiki 页面，判断它更适合迁移到哪个开源本地部署产品。”
-- “检查飞书应用当前能看到哪些知识空间和文档，不要修改任何内容。”
-- “把这个飞书知识库同步成本地 Markdown，备份到 Git。”
-
-执行前解析 `source`、`target`、`scope`、`as` 和 `output`。对本技能的调研任务，默认 `as=bot`、`read_only=true`、`dry_run=true`（涉及写操作时）；不要因为 bot 看不到用户个人资源就静默改用用户 OAuth。
+- 「用飞书 CLI 盘点我可见的知识库层级和云盘文档类型，不要修改任何内容。」
+- 「读取这个飞书 Wiki 页面，评估适合迁移到哪类本地知识库。」
+- 「检查 `lark-cli` 认证报错并列出最小需开通权限。」
+- 「把这个飞书知识空间按增量模式同步成本地 Markdown 并做完整性验收。」
 
 ### 依赖与安装
 
-默认项目单技能：`npx skills add soia-team/soia-open-cwork-office-skills -a <agent> -s soia-cwork-feishu-cli`，执行前核实当前参数。
-整域需明确选择：Claude Code 使用 `claude plugin marketplace add` / `claude plugin install soia-cwork-office@soia`，Codex 使用 `codex plugin marketplace add` / `codex plugin add soia-cwork-office@soia`；市场为 soia-team/soia-open-skills，完整步骤见[官方安装说明](https://github.com/soia-team/soia-open-skills#安装)。
-WorkBuddy 使用[专家安装说明](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)，不由 npx 代装。上述命令不构成安装或发布授权。
+默认项目单技能：`npx skills add soia-team/soia-open-cwork-office-skills -a <agent> -s soia-cwork-feishu-cli`（`<agent>` 换成明确宿主；仅明确选择全局时加 `-g`）。整域需明确选择：`claude plugin marketplace add soia-team/soia-open-skills && claude plugin install soia-cwork-office@soia`（Codex 用 `codex plugin add soia-cwork-office@soia`）。**WorkBuddy** 使用[专家安装说明](https://github.com/soia-team/soia-open-skills/blob/main/docs/install/workbuddy.md)，不由 npx 代装。上述命令不构成安装或发布授权。环境需 Node.js/npx 与官方 `lark-cli`（`npx @larksuite/cli@latest install`）；知识库同步脚本依赖 Python 3.10+ 与 PyYAML。
 
-| 依赖 | 类型 | 安装 / 配置 | 缺失时怎么处理 |
-|---|---|---|---|
-| Node.js/npm 或可运行 npx 的环境 | 强依赖 | 安装 Node.js 后运行 `npx @larksuite/cli@latest install` | 停止并说明需要安装 Node.js/npm |
-| 官方 `lark-cli` | 强依赖 | `npx @larksuite/cli@latest install`；按需安装官方配套 skills：`npx skills add larksuite/cli -g -y` | 只可做公开资料调研，不能声称已读取用户飞书 |
-| 飞书应用凭证 | 强依赖 | 使用 `profile add` 或本技能脚本写入 provider-owned CLI 配置 | 停止远端调研；不要要求用户把 Secret 发到聊天里 |
-| 飞书应用已开通的 API 权限 | 强依赖 | 在飞书开放平台开通所需 scope；优先只读权限 | 记录缺少的 scope 和官方控制台链接 |
+### 私密信息与中间数据
 
-安装后先运行：
-
-```bash
-lark-cli doctor
-lark-cli profile list
-lark-cli auth status --json --verify
-lark-cli whoami
-```
-
-### 权限开通与应用发布
-
-先按下方只读调研工作流核对身份、目标和最小 scope。仅遇 CLI 错误时读取[错误目录](references/errors.yml)，确认权限缺口后再读取[权限开通指南](references/permissions.md)；已有有效权限不重复申请。知识库/云盘与 bot/user OAuth 分开，不为读取申请写入、删除、上传或成员管理权限。
-
-开放平台入口按私有配置中的 `LARK_APP_ID` 拼接：
-
-```text
-https://open.feishu.cn/app/<APP_ID>/auth
-```
-
-必须完成完整闭环：在“开发配置 → 权限管理”按目标 API 的权限要求开通并保存 → 检查 tenant 应用数据权限和资源可见范围 → 对需审核权限创建版本并提交线上发布 → 等企业管理员审核通过 → 重新运行 `setup_app_credentials.py --use`、`auth status --json --verify` 和代表性只读命令。免审权限可直接测试；“审核中”不视为权限已正式生效。
-
-每次向客户回执权限时，分成“必需”“可选”“不要默认开通”三类，并列出缺失 scope、官方控制台入口和发布步骤；不要把客户的真实 App ID 写进公共技能文件。
-
-### 应用凭证登录（bot 模式）
-
-应用凭证是本技能的默认登录方式，不调用 `lark-cli auth login` 作为默认流程。应用凭证只获得 bot 身份：它只能读取应用可见、被授予应用访问权或租户策略允许访问的资源；它不能自动代表用户读取个人知识库、个人云盘或私有文档。
-
-推荐把凭证放在技能专属私有配置，不提交仓库、不写入 vault：
-
-```text
-~/.config/soia-skills/soia-cwork-feishu-cli/config.yml
-SOIA_CWORK_FEISHU_CONFIG_FILE=<custom-config-path>
-```
-
-配置示例见 [assets/config.example.yml](assets/config.example.yml)。配置只允许出现占位符或用户自己的本地值：
-
-```yaml
-version: 1
-env:
-  LARK_APP_ID: "<YOUR_APP_ID>"
-  LARK_APP_SECRET: "<YOUR_APP_SECRET>"
-  LARK_PROFILE: "feishu-reader"
-  LARK_BRAND: "feishu"
-```
-
-使用配置初始化应用 profile 时，脚本通过 stdin 传递 Secret，不把 Secret 放进进程参数或日志：
-
-```bash
-python3 <skill-path>/scripts/setup_app_credentials.py
-```
-
-首次初始化或本机 profile 不存在时，使用 `--use` 让它成为当前 profile：
-
-```bash
-python3 <skill-path>/scripts/setup_app_credentials.py --use
-```
-
-刷新已有 profile 的 App Secret、App ID 或 brand 时，必须由用户明确发起，再使用：
-
-```bash
-python3 <skill-path>/scripts/setup_app_credentials.py --replace --use
-```
-
-由于 lark-cli 不允许同一个 App ID 同时存在于两个 profile，刷新会先删除旧 profile，再写入新 profile；因此只有在私有配置已确认无误、且用户明确要求刷新时才执行。若写入失败，需要检查私有配置后重新运行初始化。完成后验证：
-
-```bash
-lark-cli profile list
-lark-cli auth status --json --verify
-lark-cli whoami
-lark-cli doctor
-```
-
-若出现 `invalid_client`、错误码 `20140` 或 “The auth method is not supported.”，这属于 profile/应用凭证认证失败，不是缺少 scope；先按 [errors.yml](references/errors.yml) 修复 profile，再检查权限。
-
-如需将新 profile 切换为默认 profile，必须显式使用：
-
-```bash
-python3 <skill-path>/scripts/setup_app_credentials.py --use
-```
-
-等价的手工方式是：
-
-```bash
-printf '%s' '<YOUR_APP_SECRET>' | lark-cli profile add \
-  --name feishu-reader \
-  --app-id '<YOUR_APP_ID>' \
-  --app-secret-stdin \
-  --brand feishu
-```
-
-不要把 `LARK_APP_SECRET` 放进 shell 历史、命令行参数、日志、提交记录或飞书文档。`auth login` 是用户 OAuth 授权，只能在用户明确要求个人资源或明确指定 `--as user` 时使用。
-
-### 用户 OAuth 登录（仅个人资源）
-
-用户明确要求个人云盘、个人知识库或私有资源时，先读取对应的 [wiki-workflow.md](references/wiki-workflow.md) 或 [drive-workflow.md](references/drive-workflow.md)，确认用户身份 scope，再使用 split-flow：
-
-```bash
-mkdir -p "${TMPDIR:-/tmp}/soia-cwork-feishu-cli"
-lark-cli auth login --scope "<minimal-user-scopes>" --no-wait --json
-lark-cli auth qrcode '<verification_url>' --output "${TMPDIR:-/tmp}/soia-cwork-feishu-cli/feishu-user-oauth.png"
-```
-
-把授权链接和二维码交给用户后结束本轮；用户确认完成后，由 agent 执行 `lark-cli auth login --device-code <device_code>`，再检查 `auth status --json --verify` 是否为 `user: ready`。不要把用户 OAuth 当成 bot 修复手段，也不要在用户未明确要求时静默切换身份。
-
-认证链路必须区分：
-
-- `lark-cli auth login`：官方 CLI 的用户身份 OAuth/device flow，完成后才会出现 `user: ready`。
-- `https://accounts.feishu.cn/oauth/v1/device/verify?...`：CLI device flow 的验证入口。若它跳转到 `open.feishu.cn/page/scope-authorization` 并显示“已提交申请，正在审核中”，表示应用的用户身份 scope 或应用版本尚未生效；这不是用户已经完成登录。
-- `https://open.feishu.cn/open-apis/authen/v1/user_info`：登录完成后的“获取用户信息” API，需要已有 `user_access_token`，不能当作登录入口。
-- 自建网页应用若自行实现 OAuth，使用官方授权码接口 `/open-apis/authen/v1/authorize`，配置 `redirect_uri` 后交换 `user_access_token`；不要为了 CLI 任务手工拼接该 URL，CLI 已经用 device flow 封装。
-
-同一个 App ID 既可以产生 Bot 的 `tenant_access_token`，也可以作为 OAuth 客户端产生用户的 `user_access_token`；页面显示应用名称相同不能证明当前是 Bot 或 User。以 `auth status --json --verify` 的 `identities.bot` / `identities.user` 和命令的 `--as` 为准。
-
-### 只读调研工作流
-
-1. **检查身份和范围**：先读取[机器可读权限目录](references/permissions.yml)，必要时读取[错误目录](references/errors.yml)和[权限开通指南](references/permissions.md)；运行 `lark-cli auth status --json --verify`、`lark-cli whoami`；记录 identity、profile、token 状态和非敏感 scope，不输出密钥。
-2. **读取匹配的官方嵌入技能**：运行 `lark-cli skills read lark-shared`；知识库任务读取 `lark-wiki`，云盘任务读取 `lark-drive`，正文任务再读取 `lark-doc`。不要凭 `--help` 猜参数。
-3. **盘点知识库/Wiki**：按 [wiki-workflow.md](references/wiki-workflow.md) 选择身份；bot 运行 `wiki +space-list` / `wiki +node-list`，user 仅在用户明确授权后运行对应的 `--as user` 命令。个人库 `my_library` 只能用 user 身份。
-4. **盘点云盘/Drive**：按 [drive-workflow.md](references/drive-workflow.md) 选择身份；bot 运行 Drive 搜索只能覆盖应用可见资源，个人云盘必须明确 OAuth 后运行 `--as user`。
-5. **读取文档**：先用对应身份运行 `lark-cli drive +inspect --as <bot|user> --url '<URL>' --format json` 解析真实类型和 token；再按 `lark-doc` 说明使用对应身份的 `docs +fetch`。
-6. **分析迁移需求**：只基于已读到的结构、类型、附件、权限和协作痕迹判断目标产品；把“看到的”“推断的”“未验证的”分开写。
-7. **验证**：对关键数量重新分页核对；抽取代表性文档；检查 bot 不可见的个人资源并单列为缺口；若 API 要求应用数据权限，单独核对其数据范围。不要把一次搜索结果当成全量清单。
-
-详细命令和产品边界见 [references/cli-workflows.md](references/cli-workflows.md)。
-
-### 写操作与风险边界
-
-- 默认只读：搜索、列空间、列节点、读取正文、查看元数据、查看评论和权限。
-- 创建、编辑、评论、上传、移动、复制、导出、下载、公开分享、成员管理、删除、回滚和发送消息都属于写入或敏感数据动作；先展示目标、范围、命令和影响，等待用户明确确认。
-- 遇到 CLI 返回 `confirmation_required`，不要静默追加 `--yes`；把高风险动作交给用户确认。
-- 遇到 `invalid_client` / `20140`，不要把它归类为缺 scope，也不要先申请权限；先修复应用凭证 profile。
-- 遇到缺 scope，优先按错误中的 `console_url` 和缺失 scope 处理；不要静默切换用户 OAuth，只有用户明确要求个人资源或明确指定 `--as user` 时才启动 OAuth。
-- 不读取浏览器 Cookie、密码、浏览器 profile、keychain 原始内容或未由用户提供的 token 存储。
+凭证配置仅存 `${XDG_CONFIG_HOME:-~/.config}/soia-skills/soia-cwork-feishu-cli/config.yml` 或 `$SOIA_CWORK_FEISHU_CONFIG_FILE`（模板见 [assets/config.example.yml](assets/config.example.yml)）；同步配置独立存 `doc-git-sync.yml` 或 `$SOIA_CWORK_FEISHU_DOC_GIT_SYNC_CONFIG_FILE`（只读兼容旧路径，示例见 [assets/doc-git-sync.config.example.yml](assets/doc-git-sync.config.example.yml)）。绝不把 App Secret、access token、cookie、真实 App ID 或本机绝对路径/系统用户名写入公共库、vault 或回复日志；脱敏规则见 [references/doc-git-sync-output-redaction.yml](references/doc-git-sync-output-redaction.yml)。
 
 ### 日志与完成回执
 
-每次运行至少报告：
+汇报 `started`（CLI 版本、profile 名称、`bot`/`user` 身份与非敏感范围）、`processed`（空间/节点/文档数与分页完整性）、`created/updated`（默认“未改动远端”；同期同步报脱敏状态与数量）、`skipped/failed`（权限/可见性缺口与错误分类）及 `verification`。
 
-- `started`：CLI 版本、profile 名称、bot/user 身份、非敏感 scope 和调研范围；不打印 Secret。
-- `processed`：空间、节点、文件或文档数量，以及分页是否完整。
-- `created/updated`：默认写“未改动远端”；若有用户确认的写入，列出实际对象和结果。
-- `skipped/failed`：权限不足、bot 不可见、分页上限、解析失败和原因。
-- `verification`：运行过的 status、schema、分页、抽样读取和备份/导出检查。
+## 身份分流、凭证与权限规则
 
-推荐回执：
+1. **Wiki vs Drive 与 `bot` vs `user`**：Wiki（[wiki-workflow.md](references/wiki-workflow.md)）与 Drive（[drive-workflow.md](references/drive-workflow.md)）接口分离。应用身份 `bot` 只读取授权给应用的空间/文件夹；只有用户明确指定个人云盘、`my_library` 或 `--as user` 时才启用用户 OAuth（device flow 经 `lark-cli auth login --no-wait --json` 生成二维码交用户扫码完成，不得因 bot 搜索为空就静默切 user OAuth）。
+2. **初始化应用 profile（stdin 传密，禁止命令行裸传）**：
+   - `python3 <skill-path>/scripts/setup_app_credentials.py --use`（首次）或 `--replace --use`（仅用户明确要求覆盖同 App ID 旧 profile 时）。
+   - 安装/初始化后运行：`lark-cli doctor`、`lark-cli profile list`、`lark-cli auth status --json --verify`、`lark-cli whoami`。
+3. **诊断区分**：遇 `invalid_client`、`20140` 或“auth method is not supported”先按 [errors.yml](references/errors.yml) 修 profile 凭证，不误判为缺 scope；缺 scope 时按 [permissions.yml](references/permissions.yml) 与 [permissions.md](references/permissions.md) 分出「必需 / 可选 / 不要默认开通」，明确提示需完成**开通保存 → 数据可见范围 → 创建版本并提交审核通过**闭环（「审核中」不算生效）。
 
-```markdown
-完成：<一句话说明本次飞书调研或配置结果>。
+## 只读调研与知识库同步工作流
 
-日志摘要：
-- started: <profile / identity / 非敏感范围>
-- processed: <空间、节点、文档或文件数量>
-- created/updated: 未改动远端 / <已确认的写入结果>
-- skipped/failed: <数量和原因>
+### A. 只读调研
 
-文件变化：
-- <绝对路径或“未改动文件”>
+1. 运行 `auth status --json --verify` 核对真实身份（以 `identities.bot`/`user` 与 `--as` 为准）。
+2. 执行 `lark-cli skills read lark-shared` 及对应领域嵌入说明（`lark-wiki` / `lark-drive` / `lark-doc`），不凭 `--help` 猜参。
+3. Wiki 用 `wiki +space-list` / `wiki +node-list`；Drive 按身份搜索；读文档先 `drive +inspect --as <bot|user> --url '<URL>' --format json` 再 `docs +fetch`（命令细则见 [references/cli-workflows.md](references/cli-workflows.md)）。
+4. 写操作、导出（`drive +export`/`docs +media-download`）、加权、删除或 `confirmation_required` 一律先展示范围、命令与影响等用户明确确认；禁止静默 `--yes`。
 
-验证：
-- <运行过的 CLI 检查、分页核对、抽样读取>
+### B. 知识库同步到本地（`sync_feishu_wiki.py`）
 
-问题与下一步：
-- <缺 scope、bot 不可见资源、需要用户授权或无>
-```
-
-## 知识库同步到本地（Markdown / Git / Obsidian / VitePress）
-
-用户说“同步飞书知识库”“备份到 Git”“在本地查看”“规划双向同步”时走这一节。默认方向是 Feishu → 本地；不向飞书写入，双向同步必须先建立文档归属、冲突策略和写权限。完整能力表、14 步用法、全部命令、同步规则与 ID 增量说明在 [references/doc-git-sync.md](references/doc-git-sync.md)，真实同步前读它。
-
-### 最小流程
-
-1. 先按上文完成应用凭证登录，确认机器人能读目标知识空间；同步只用 `--as bot`。
-2. 准备同步私有配置（知识空间 ID、输出目录、来源 URL 模板），模板见 [assets/doc-git-sync.config.example.yml](assets/doc-git-sync.config.example.yml)。还需要 Python 3.10+ 与 PyYAML；Git、VitePress、Obsidian 是可选增强。
-3. dry-run 核对空间、节点数和目标目录 → 单节点隔离试点 → 增量同步 → 本地验收。Sheet、多维表格、附件下载、完整导出都要用户明确确认范围后在私有配置里逐项开启。
+全量细节（14 步用法、增量与 ID 策略、Sheet/多维表格/附件边界、Git/VitePress 接入）见 [references/doc-git-sync.md](references/doc-git-sync.md)，执行真实同步前必读：
 
 ```bash
 python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --dry-run
-python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --output-dir <pilot-output-dir> \
-  --pilot-node-token <node_token> --incremental
+python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --output-dir <pilot-dir> --pilot-node-token <token> --incremental
 python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --incremental
 python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --retry-failed --retry-batch-size 100 --skip-assets
 python3 <skill-path>/scripts/sync_feishu_wiki.py --config <private-config.yml> --validate-only
 ```
 
-验收失败退出码为 2；`failed`/`stale` 或语义缺口不算成功，零退出码本身也不是镜像完整的证据。
+只使用 `--as bot`；Sheet / Bitables 值镜像仅在用户明确勾选有界范围并写入私有配置后开启，不顺带全表导出或自动 Git commit/push；`--validate-only` 非 0 退出、`failed`/`stale` 或语义缺口均不视为完成。
 
-### 同步配置位置与旧配置回退
+## 参考资料与验证
 
-```text
-~/.config/soia-skills/soia-cwork-feishu-cli/doc-git-sync.yml
-SOIA_CWORK_FEISHU_DOC_GIT_SYNC_CONFIG_FILE=<custom-config-path>
-```
-
-同步配置与本技能的凭证配置 `config.yml` 分开放。没有显式 `--config` 或环境变量时，脚本按顺序查找：新位置 → 旧技能名目录 `~/.config/soia-skills/soia-cwork-feishu-doc-git-sync/config.yml` → 更早的 `~/.config/soia-skills/soia-open-skills/cwork/soia-cwork-feishu-doc-git-sync/config.yml`。旧位置是只读回退：已有配置照常生效，不搬移、不改写、不删除；新建配置写新位置。
-
-### 同步安全规则
-
-- 不在公开 skill、Obsidian vault、Markdown、Git 提交、终端输出或最终回复中写入 App Secret、access token、cookie。
-- 终端日志、进度回执和最终回复不得输出本地绝对路径、具体本地文件名、操作系统用户名、用户名、密码、App Secret、access token 或私有下载 URL；统一使用脱敏占位符，只报告状态、数量和错误类别。详见 [references/doc-git-sync-output-redaction.yml](references/doc-git-sync-output-redaction.yml)。
-- 不默认调用飞书创建、更新、删除接口。
-- `drive +export`、`drive +export-download`、`docs +media-download` 和附件下载均属于数据导出/下载动作；用户说“看下能否导出”时只做 inspect、help、schema 或 dry-run，不得直接创建本地文件。
-- Sheet 与 Base 值镜像都属于敏感数据落盘：只有用户明确确认需要将选定范围/表同步到本地工作区，并在私有配置中写入有界 `sync.sheets.selections` 或受限 `sync.bitables.selections` 后才可启用；该确认不授权任何工作簿导出、未选附件下载或自动 Git 提交。
-- 真实导出前必须明确回执来源、类型、格式、预计文件数、输出目录和 Git 追踪策略；“检查能力”不等于“授权导出”。
-- 导出文件默认放在临时目录或用户明确指定的目录；只有经用户明确确认的完整镜像初始化才能写入生成目录下的 `_exports/` 或 `_assets/`，并且不得自动提交 Git、自动推送远程或写回飞书。
-- bot 无权访问的个人云盘或私有资源必须报告为不可见，不得切换 user OAuth 代为读取。
-- 不默认覆盖本地补录、删除历史文件或推送远程 Git；这些属于需要明确确认的写入/发布动作。
-- 执行前检查目标仓库、当前分支和远程地址；发现与预期不符时停止并报告。
-
-### 同步的私密信息与中间数据
-
-- 把排除节点 ID、知识空间 ID、凭据别名和本地输出位置只写入技能私有配置，不提交公共仓库。
-- 把 active/excluded 节点清单、同步状态、侧边栏和变更台账保存在用户指定镜像的同步元数据目录；排除记录只用于证明未抓取范围，不包含正文。
-- 把临时下载和接口中间结果交给系统临时目录；只把用户授权的 Markdown、表格快照和资源文件写入交付目录。
-
-### 同步参考
-
-- 完整用法、命令、同步规则、日志回执：[references/doc-git-sync.md](references/doc-git-sync.md)
-- 权限分层：[references/doc-git-sync-permissions.yml](references/doc-git-sync-permissions.yml)；事件订阅与增量目标：[references/doc-git-sync-events.yml](references/doc-git-sync-events.yml)
-- 同步策略：[references/doc-git-sync-sync-policy.yml](references/doc-git-sync-sync-policy.yml)；文档格式转换：[references/doc-git-sync-block-mapping.yml](references/doc-git-sync-block-mapping.yml)
-- Sheet 范围镜像：[references/doc-git-sync-sheet-mirroring.yml](references/doc-git-sync-sheet-mirroring.yml)；富资源镜像：[references/doc-git-sync-rich-resource-mirroring.yml](references/doc-git-sync-rich-resource-mirroring.yml)
-- 表格/多维表格导出安全策略：[references/doc-git-sync-export-policy.yml](references/doc-git-sync-export-policy.yml)；日志与回复脱敏：[references/doc-git-sync-output-redaction.yml](references/doc-git-sync-output-redaction.yml)
-- Git 与 VitePress 接入：[references/doc-git-sync-git-vitepress.yml](references/doc-git-sync-git-vitepress.yml)
-
-## 资源
-
-- 配置示例：[assets/config.example.yml](assets/config.example.yml)
-- CLI 工作流：[references/cli-workflows.md](references/cli-workflows.md)
-- Provider 选择和凭证边界：[references/providers.md](references/providers.md)
-- 权限事实源：[references/permissions.yml](references/permissions.yml)
-- 知识库/Wiki 工作流：[references/wiki-workflow.md](references/wiki-workflow.md)
-- 云盘/Drive 工作流：[references/drive-workflow.md](references/drive-workflow.md)
-- 常见错误事实源：[references/errors.yml](references/errors.yml)
-- 权限申请流程：[references/permissions.md](references/permissions.md)
-- 应用凭证初始化脚本：`scripts/setup_app_credentials.py`
-- 知识库同步脚本：`scripts/sync_feishu_wiki.py`（用法见「知识库同步到本地」）
-
-## 验证
+- 参考：[cli-workflows.md](references/cli-workflows.md)、[providers.md](references/providers.md)、[permissions.yml](references/permissions.yml)、[permissions.md](references/permissions.md)、[errors.yml](references/errors.yml)、[doc-git-sync.md](references/doc-git-sync.md)（及其 `doc-git-sync-*.yml` 策略/脱敏子文件）。
+- 单测与前向测试：先用脱敏 fixture 或授权代表性只读对象核对身份、分页数量与脱敏回执，再运行仓库校验：
 
 ```bash
-python3 <skill-path>/scripts/setup_app_credentials.py --help
-python3 <skill-path>/scripts/sync_feishu_wiki.py --help
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py <skill-path>
+python3 -m unittest tests.test_feishu_cli_setup tests.test_feishu_doc_sync
+python3 scripts/audit_skills.py --strict
 ```
-
-仓库级验证由本仓 `AGENTS.md` 规定，至少运行单元测试、技能目录生成检查、技能审计和 `git diff --check`。
-
-### 前向测试
-
-复杂调研或权限变更前，先用脱敏 fixture 或客户明确授权的代表性只读对象执行一次前向测试：核对权限提示、bot 身份、数量分页、失败分类和最终回执；不得把命令成功退出当成内容完整性的证据。
