@@ -3,6 +3,14 @@
 本文件由 soia-meta-skill-release 在每次正式发版时自动更新，与 GitHub Release 同源；
 更早的版本演进见 git 提交历史与 GitHub Releases。
 
+## v1.11.8 — 2026-11-18
+
+瘦身 6 个 SKILL.md 并外提小红书网页发布实操参考
+
+## 维护
+- refactor(skills): slim SKILL.md for strong models and extract rednote web guide (#98)
+- chore(release): open next train after v1.11.7 (#97)
+
 ## v1.11.7 — 2026-11-17
 
 新增中国传统构图20式与中华传统色、45秒一图读懂手机海报压缩及公众号 copy.html 一键复制与双比例预览工作台
